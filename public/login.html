@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mining Bots - Login</title>
+  <link rel="stylesheet" href="/login.css">
+</head>
+<body>
+  <form method="post" action="/login">
+    <div>
+      <h1>Mining Bots</h1>
+      <p>Bitte anmelden</p>
+    </div>
+    <label>Benutzername<input name="username" autocomplete="username" required autofocus></label>
+    <label>Passwort<input name="password" type="password" autocomplete="current-password" required></label>
+    <div class="err" id="err"></div>
+    <button type="submit">Anmelden</button>
+  </form>
+  <script src="/login.js"></script>
+</body>
+</html>
