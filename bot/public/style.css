@@ -1,0 +1,247 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Arial', sans-serif;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+
+.container {
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  padding: 30px;
+  max-width: 1200px;
+  width: 100%;
+}
+
+h1 {
+  text-align: center;
+  color: #333;
+  margin-bottom: 30px;
+  font-size: 2.5em;
+}
+
+h2 {
+  color: #444;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #667eea;
+  padding-bottom: 10px;
+}
+
+h3 {
+  color: #555;
+  margin-top: 20px;
+  margin-bottom: 10px;
+}
+
+h4 {
+  color: #666;
+  margin-top: 15px;
+  margin-bottom: 10px;
+  font-size: 0.95em;
+}
+
+.panel {
+  background: #f8f9fa;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 25px;
+  margin-bottom: 20px;
+}
+
+/* Login Panel */
+#loginPanel {
+  max-width: 400px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+#loginPanel input {
+  width: 100%;
+  padding: 12px;
+  margin-bottom: 15px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  font-size: 1em;
+}
+
+#loginPanel button {
+  width: 100%;
+  padding: 12px;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  font-size: 1.1em;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+#loginPanel button:hover {
+  background: #764ba2;
+}
+
+/* Bot Sections */
+.bot-section {
+  background: white;
+  border: 2px solid #667eea;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.bot-status {
+  padding: 10px;
+  border-radius: 5px;
+  font-weight: bold;
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+.bot-status.connected {
+  background: #d4edda;
+  color: #155724;
+}
+
+.bot-status.disconnected {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.bot-status.mining {
+  background: #fff3cd;
+  color: #856404;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.position, .durability {
+  padding: 8px;
+  background: #f0f0f0;
+  border-radius: 5px;
+  margin: 5px 0;
+  font-size: 0.9em;
+  color: #555;
+}
+
+.coords {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+  align-items: center;
+}
+
+.coords label {
+  font-weight: bold;
+  min-width: 80px;
+}
+
+.coords input {
+  flex: 1;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+}
+
+input, select {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 10px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  font-size: 0.95em;
+}
+
+input:focus, select:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 5px rgba(102, 126, 234, 0.3);
+}
+
+button {
+  padding: 10px 15px;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.3s;
+  margin-right: 10px;
+  margin-bottom: 10px;
+}
+
+button:hover {
+  background: #764ba2;
+}
+
+button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.mining-section {
+  background: #f0f8ff;
+  border-left: 4px solid #667eea;
+  padding: 15px;
+  margin-top: 15px;
+  border-radius: 5px;
+}
+
+.error {
+  background: #f8d7da;
+  color: #721c24;
+  padding: 15px;
+  border-radius: 5px;
+  margin-bottom: 15px;
+  border: 1px solid #f5c6cb;
+}
+
+.success {
+  background: #d4edda;
+  color: #155724;
+  padding: 15px;
+  border-radius: 5px;
+  margin-bottom: 15px;
+  border: 1px solid #c3e6cb;
+}
+
+.info {
+  background: #d1ecf1;
+  color: #0c5460;
+  padding: 15px;
+  border-radius: 5px;
+  margin-bottom: 15px;
+  border: 1px solid #bee5eb;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  h1 {
+    font-size: 1.8em;
+  }
+
+  .container {
+    padding: 15px;
+  }
+
+  .coords {
+    flex-direction: column;
+  }
+
+  .coords label {
+    width: 100%;
+  }
+}

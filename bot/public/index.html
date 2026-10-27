@@ -1,0 +1,49 @@
+```html
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bot Mining Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>🤖 Mining Bot Dashboard</h1>
+
+    <!-- Login -->
+    <div id="loginPanel" class="panel">
+      <h2>Login</h2>
+      <input type="text" id="username" placeholder="Benutzername">
+      <input type="password" id="password" placeholder="Passwort">
+      <button onclick="login()">Anmelden</button>
+    </div>
+
+    <!-- Dashboard (versteckt bis Login) -->
+    <div id="dashboard" class="panel" style="display: none;">
+      <h2>Bots verwalten</h2>
+
+      <!-- Bot 1 -->
+      <div class="bot-section">
+        <h3>Bot 1</h3>
+        <div class="bot-status" id="bot0-status">Disconnected</div>
+        <input type="text" id="bot0-server" placeholder="Server IP (z.B. play.example.com)">
+        <select id="bot0-type">
+          <option value="microsoft">Microsoft Login</option>
+          <option value="token">Token Login</option>
+        </select>
+        <input type="text" id="bot0-account" placeholder="Account Name">
+        <input type="password" id="bot0-password" placeholder="Passwort">
+        <button onclick="connectBot(0)">Verbinden</button>
+        <button onclick="disconnectBot(0)">Trennen</button>
+
+        <div class="mining-section">
+          <h4>Mining-Bereich</h4>
+          <div class="coords">
+            <input type="number" id="bot0-pos1-x" placeholder="Pos1 X">
+            <input type="number" id="bot0-pos1-y" placeholder="Pos1 Y">
+            <input type="number" id="bot0-pos1-z" placeholder="Pos1 Z">
+          </div>
+          <div class="coords">
+            <input type="number" id="bot0-pos2-x" placeholder="Pos2 X">
+            <input type="number" id="
