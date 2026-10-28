@@ -141,12 +141,14 @@ io.on('connection', (socket) => {
       const target = auth.getUsers().find(u=>u.id===String(payload && payload.userId || ''));
       if (!target) return reply({ok:false,error:'Account not found'});
       viewAsBySocket.set(socket.id,target.id);
+      socket.emit('view_as_changed',{active:true,username:target.username});
       socket.emit('state',snapshotFor(target));
       return reply({ok:true});
     }
     if (type === 'exit_view_as') {
       if (!isAdmin(original)) return reply({ok:false,error:'Admin only'});
       viewAsBySocket.delete(socket.id);
+      socket.emit('view_as_changed',{active:false});
       socket.emit('state',snapshotFor(original));
       return reply({ok:true});
     }
@@ -168,9 +170,9 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => { socketUserById.delete(socket.id); viewAsBySocket.delete(socket.id); });
 });
 
-manager.on('log', (entry) => { for (const socket of io.sockets.sockets.values()) { const u=auth.getUsers().find(x=>x.id===socketUserById.get(socket.id)); if (isAdmin(u) || (u && u.botNames.includes(entry.source))) socket.emit('log', entry); } });
+manager.on('log', (entry) => { for (const socket of io.sockets.sockets.values()) { const original=auth.getUsers().find(x=>x.id===socketUserById.get(socket.id)); const u=viewAsBySocket.has(socket.id)?auth.getUsers().find(x=>x.id===viewAsBySocket.get(socket.id)):original; if (isAdmin(original) || (u && u.botNames.includes(entry.source))) socket.emit('log', entry); } });
 manager.on('change', () => { for (const socket of io.sockets.sockets.values()) { const original=auth.getUsers().find(x=>x.id===socketUserById.get(socket.id)); const u=viewAsBySocket.has(socket.id)?auth.getUsers().find(x=>x.id===viewAsBySocket.get(socket.id)):original; socket.emit('state', snapshotFor(u)); } });
-setInterval(() => { if (io.engine.clientsCount) for (const socket of io.sockets.sockets.values()) { const u=auth.getUsers().find(x=>x.id===socketUserById.get(socket.id)); socket.emit('state', snapshotFor(u)); } }, 1000).unref();
+setInterval(() => { if (io.engine.clientsCount) for (const socket of io.sockets.sockets.values()) { const original=auth.getUsers().find(x=>x.id===socketUserById.get(socket.id)); const u=viewAsBySocket.has(socket.id)?auth.getUsers().find(x=>x.id===viewAsBySocket.get(socket.id)):original; socket.emit('state', snapshotFor(u)); } }, 1000).unref();
 
 process.on('unhandledRejection', (e) => manager.log('system', `Unbehandelter Fehler: ${e && e.message ? e.message : e}`, 'error'));
 process.on('uncaughtException', (e) => manager.log('system', `Fehler: ${e && e.message ? e.message : e}`, 'error'));
