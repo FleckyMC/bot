@@ -152,7 +152,7 @@ class BotManager extends EventEmitter {
     if (!NAME_RE.test(name)) throw new Error('Bot-Name muss 3-16 Zeichen haben (Buchstaben, Zahlen, _)');
     if (!this.connection.host) throw new Error('Bitte zuerst Server-IP speichern/verbinden');
     if (this.workers.has(name)) throw new Error('Dieser Bot existiert bereits');
-    const auth = p.auth === 'microsoft' ? 'microsoft' : 'offline';
+    const auth = 'microsoft';
     const w = new BotWorker(this, name);
     w.authMethod = auth;
     w.wantConnected = true;
