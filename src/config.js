@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const DEFAULTS = {
-  connection: { host: '', port: 0, auth: 'offline' },
+  connection: { host: '', port: 0, auth: 'microsoft' },
   version: 'auto',
   names: [],
   area: null, // { p1:{x,y,z}, p2:{x,y,z} }
