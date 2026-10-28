@@ -266,6 +266,20 @@ class BotManager extends EventEmitter {
     this.touch();
   }
 
+  stopBots(names) {
+    const allowed = new Set(Array.isArray(names) ? names.map(String) : []);
+    const selected = [...this.workers.values()].filter(w => allowed.has(w.name));
+    for (const w of selected) {
+      w.stopJob();
+      w.region = null;
+      this.log(w.name, 'Aufgabe durch Account gestoppt', 'info');
+    }
+    if (!selected.length) throw new Error('Diesem Account sind keine verbundenen Bots zugewiesen.');
+    const activeRegions = [...this.workers.values()].some(w => w.region);
+    if (!activeRegions) this.mining = false;
+    this.touch();
+  }
+
   workerFinished() {
     const active = [...this.workers.values()].filter((w) => w.region);
     if (this.mining && active.length && active.every((w) => w.status === 'done')) {
