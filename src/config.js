@@ -20,6 +20,9 @@ const DEFAULTS = {
     fishingThreshold: 20,
     fishingUseMending: true,
     fishingDeposit: true,
+    autoEat: true,
+    autoEatThreshold: 14,
+    dropItems: [],
   },
 };
 

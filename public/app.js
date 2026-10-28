@@ -26,6 +26,21 @@ function act(type, payload, okMsg) {
   });
 }
 
+window.addEventListener('dashboard:view-as', (event) => {
+  const userId = event.detail && event.detail.userId;
+  if (!userId) return;
+  socket.emit('action','view_as',{userId},(res)=>{
+    if (!res || !res.ok) toast((res && res.error)||'Could not switch account view',true);
+    else { toast('Viewing account: '+(event.detail.username||'user')); const p=$('accountPanel'); if(p) p.dataset.viewAs='true'; }
+  });
+});
+window.addEventListener('dashboard:exit-view-as', () => {
+  socket.emit('action','exit_view_as',{},(res)=>{
+    if (!res || !res.ok) toast((res && res.error)||'Could not exit account view',true);
+    else { toast('Admin view restored'); const p=$('accountPanel'); if(p) delete p.dataset.viewAs; }
+  });
+});
+
 const num = (id) => {
   const v = $(id).value.trim();
   return v === '' ? NaN : Number(v);
@@ -66,6 +81,9 @@ function fillForms(s) {
   $('sOutside').checked = !!s.settings.allowDigOutside;
   $('sExcluded').value = (s.settings.excludedBlocks || []).join(', ');
   if (s.settings.chest) { $('cx').value = s.settings.chest.x; $('cy').value = s.settings.chest.y; $('cz').value = s.settings.chest.z; }
+  if ($('autoEat')) $('autoEat').checked = s.settings.autoEat !== false;
+  if ($('autoEatThreshold')) $('autoEatThreshold').value = s.settings.autoEatThreshold ?? 14;
+  if ($('dropItems')) $('dropItems').value = (s.settings.dropItems || []).join(', ');
   formsFilled = true;
 }
 
@@ -221,6 +239,7 @@ function render(s) {
 // ------------------------------------------------------------ Log
 
 const logBox = $('log');
+$('clearLog')?.addEventListener('click', () => { logBox.replaceChildren(); toast('Activity log cleared'); });
 function addLog(e) {
   const stick = logBox.scrollTop + logBox.clientHeight >= logBox.scrollHeight - 24;
   const d = el('div', e.level === 'warn' || e.level === 'error' ? e.level : '');
@@ -232,6 +251,7 @@ function addLog(e) {
 
 // ------------------------------------------------------------ Socket
 
+socket.on('view_as_changed', ({active}) => { const p=$('accountPanel'); if(!p)return; p.hidden=false; const create=$('createAccount'), list=$('accountList'), search=$('accountSearch'), refresh=$('refreshAccounts'), exit=$('exitViewAs'); if(create)create.hidden=!!active; if(list)list.hidden=!!active; if(search&&search.parentElement)search.parentElement.hidden=!!active; if(refresh)refresh.hidden=!!active; if(exit)exit.hidden=!active; });
 socket.on('init', ({ state: s, logs }) => {
   formsFilled = false;
   render(s);
@@ -290,6 +310,9 @@ $('btnSettings').onclick = () => {
     fishingThreshold: num('fishThreshold'),
     fishingUseMending: $('fishMending').checked,
     fishingDeposit: $('fishDeposit').checked,
+    autoEat: $('autoEat').checked,
+    autoEatThreshold: num('autoEatThreshold'),
+    dropItems: $('dropItems').value.split(',').map(x => x.trim().toLowerCase().replace(/^minecraft:/, '')).filter(Boolean),
     avoidLiquid: $('sLiquid').checked,
     allowDigOutside: $('sOutside').checked,
     excludedBlocks: $('sExcluded').value.split(',').map(x => x.trim()).filter(Boolean),
