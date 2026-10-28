@@ -247,7 +247,7 @@ function addLog(e) {
 
 // ------------------------------------------------------------ Socket
 
-socket.on('view_as_changed', ({active}) => { const p=$('accountPanel'); if(p) p.hidden=!!active; });
+socket.on('view_as_changed', ({active}) => { const p=$('accountPanel'); if(!p)return; p.hidden=false; const create=$('createAccount'), list=$('accountList'), search=$('accountSearch'), refresh=$('refreshAccounts'), exit=$('exitViewAs'); if(create)create.hidden=!!active; if(list)list.hidden=!!active; if(search&&search.parentElement)search.parentElement.hidden=!!active; if(refresh)refresh.hidden=!!active; if(exit)exit.hidden=!active; });
 socket.on('init', ({ state: s, logs }) => {
   formsFilled = false;
   render(s);
