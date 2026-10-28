@@ -40,14 +40,18 @@ function createUser({username,password,role='user',expiresAt=null,botLimit=0,bot
   if (String(password||'').length < 10) throw new Error('Password must contain at least 10 characters.');
   const users=getUsers(); if(users.some(u=>u.username.toLowerCase()===username.toLowerCase())) throw new Error('Username already exists.');
   const hp=hashPassword(password);
-  const user={id:crypto.randomUUID(),username,role:role==='admin'?'admin':'user',...hp,createdAt:Date.now(),expiresAt:expiresAt?Number(expiresAt):null,botLimit:Math.max(0,Math.floor(Number(botLimit)||0)),botNames:Array.isArray(botNames)?botNames.map(String):[]};
+  const limit=Math.max(0,Math.floor(Number(botLimit)||0));
+  const assigned=Array.isArray(botNames)?[...new Set(botNames.map(String).map(x=>x.trim()).filter(Boolean))]:[];
+  if(limit>0&&assigned.length>limit) throw new Error('Assigned bot count exceeds the account bot limit.');
+  const user={id:crypto.randomUUID(),username,role:role==='admin'?'admin':'user',...hp,createdAt:Date.now(),expiresAt:expiresAt?Number(expiresAt):null,botLimit:limit,botNames:assigned};
   users.push(user); saveUsers(users); return publicUser(user);
 }
 function updateUser(id, patch={}) {
   const users=getUsers(), u=users.find(x=>x.id===id); if(!u) throw new Error('User not found.');
   if(patch.expiresAt !== undefined) u.expiresAt=patch.expiresAt===null||patch.expiresAt===''?null:Number(patch.expiresAt);
   if(patch.botLimit !== undefined) u.botLimit=Math.max(0,Math.floor(Number(patch.botLimit)||0));
-  if(patch.botNames !== undefined) u.botNames=Array.isArray(patch.botNames)?[...new Set(patch.botNames.map(String))]:[];
+  if(patch.botNames !== undefined) u.botNames=Array.isArray(patch.botNames)?[...new Set(patch.botNames.map(String).map(x=>x.trim()).filter(Boolean))]:[];
+  if(u.botLimit>0&&u.botNames.length>u.botLimit) throw new Error('Assigned bot count exceeds the account bot limit.');
   saveUsers(users); return publicUser(u);
 }
 function deleteUser(id) { const users=getUsers(), u=users.find(x=>x.id===id); if(!u) throw new Error('User not found.'); if(u.role==='admin') throw new Error('Admin accounts cannot be deleted here.'); saveUsers(users.filter(x=>x.id!==id)); for(const [t,s] of sessions) if(s.userId===id) sessions.delete(t); }
