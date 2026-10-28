@@ -797,7 +797,7 @@ class BotWorker {
       name: this.name,
       profile: this.profile,
       accountName: bot && bot.username ? bot.username : null,
-      authMethod: this.authMethod || this.m.connection.auth || 'offline',
+      authMethod: this.authMethod || this.m.connection.auth || 'microsoft',
       status: this.status,
       detail: this.detail,
       mined: this.stats.mined,
