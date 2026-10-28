@@ -34,4 +34,27 @@
   <section class="panel wide"><div class="section-heading"><div><p class="eyebrow">LIVE-STATUS</p><h2>Deine Bots</h2></div><span class="hint">Aktualisiert automatisch</span></div><div id="bots" class="bots"><div class="empty-state">Noch keine Bots verbunden. Verbinde oben einen Bot, um ihn hier zu verwalten.</div></div></section>
   <section class="panel"><div class="section-heading"><div><p class="eyebrow">KOMMUNIKATION</p><h2>Chat & Befehle</h2></div></div><div class="toolbar"><select id="chatTarget"><option value="all">Alle Bots</option></select><input id="chatText" class="grow" placeholder="Nachricht oder /Befehl …" maxlength="256" autocomplete="off"><button id="btnChat" class="primary">Senden</button></div><p class="hint">Befehle beginnen mit /, andere Texte werden als Chat-Nachricht gesendet.</p></section>
   <section class="panel"><div class="section-heading"><div><p class="eyebrow">SYSTEM</p><h2>Aktivitätsprotokoll</h2></div></div><div id="log" class="log" role="log" aria-live="polite"></div></section>
-</main><div id="toast" class="toast" hidden></div><script src="/socket.io/socket.io.js"></script><script src="/app.js"></script></body></html>
+
+  <section class="panel wide" id="accountPanel" hidden>
+    <div class="section-heading"><div><p class="eyebrow">ADMINISTRATION</p><h2>Accounts & access</h2></div><button class="ghost" id="refreshAccounts">Refresh</button></div>
+    <form id="createAccount" class="form-grid three">
+      <label>Username<input name="username" required minlength="3" maxlength="32" autocomplete="off"></label>
+      <label>Temporary password (10+ chars)<input name="password" type="password" required minlength="10" autocomplete="new-password"></label>
+      <label>Account lifetime (days; blank = permanent)<input name="days" type="number" min="1" placeholder="Permanent"></label>
+      <label>Bot limit (0 = unlimited)<input name="botLimit" type="number" min="0" value="0"></label>
+      <label class="wide">Assigned bot names (comma-separated)<input name="botNames" placeholder="Miner1, Miner2"></label>
+      <div><button class="primary" type="submit">Create account</button></div>
+    </form>
+    <label>Search accounts<input id="accountSearch" placeholder="Search username…"></label>
+    <div id="accountList" class="bots"></div>
+  </section>
+  <section class="panel" id="passwordPanel">
+    <div class="section-heading"><div><p class="eyebrow">SECURITY</p><h2>Change password</h2></div></div>
+    <form id="changePassword" class="form-grid">
+      <label>Current password<input name="currentPassword" type="password" required autocomplete="current-password"></label>
+      <label>New password (10+ characters)<input name="newPassword" type="password" minlength="10" required autocomplete="new-password"></label>
+      <button class="primary" type="submit">Update password</button>
+    </form>
+    <p id="accountMessage" class="hint" role="status"></p>
+  </section>
+</main><div id="toast" class="toast" hidden></div><script src="/socket.io/socket.io.js"></script><script src="/app.js"></script><script src="/accounts.js"></script></body></html>
