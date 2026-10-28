@@ -103,7 +103,6 @@ function render(s) {
   const run = $('runChip');
   run.textContent = s.mining ? 'laeuft' : 'steht still';
   run.className = 'chip ' + (s.mining ? 'ok' : 'off');
-  $('btnStart').disabled = s.mining || !s.bots.length;
   $('runHint').textContent = !s.area ? 'Zuerst einen Bereich speichern.' : !s.bots.length ? 'Zuerst Bots verbinden.' : '';
   $('areaInfo').textContent = s.area ? `${s.areaVolume.toLocaleString('de-DE')} Bloecke gespeichert` : '';
 
@@ -282,7 +281,6 @@ socket.on('disconnect', () => toast('Verbindung zum Dashboard getrennt', true));
 // ------------------------------------------------------------ Buttons
 
 $('btnVersion').onclick = () => act('set_version', { version: $('mcVersion').value }, 'Minecraft-Version gespeichert');
-$('btnStart').onclick = () => act('start', {}, 'Gestartet');
 $('btnStop').onclick = () => act('stop', {}, 'Gestoppt');
 
 $('btnConnect').onclick = () => act('connect_bots', {
