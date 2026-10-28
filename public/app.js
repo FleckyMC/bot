@@ -143,10 +143,23 @@ function render(s) {
     const [label, cls] = STATUS[b.status] || [b.status, ''];
     const card = el('div', 'bot');
     const top = el('div', 'top');
-    top.append(el('span', 'name', b.name), el('span', 'chip ' + cls, label));
+    top.append(el('span', 'name', b.accountName || b.name), el('span', 'chip ' + cls, label));
     card.append(top);
     const account = el('div', 'detail', b.accountName ? `Minecraft-Spieler: ${b.accountName}` : (b.authMethod === 'microsoft' ? 'Minecraft-Spieler: wird nach Login angezeigt' : `Offline-Name: ${b.name}`));
     card.append(account, el('div', 'detail', b.detail || ' '));
+    const noteKey = 'bot-note:' + b.name;
+    const note = el('div', 'detail bot-note');
+    const savedNote = (() => { try { return localStorage.getItem(noteKey) || ''; } catch { return ''; } })();
+    note.textContent = savedNote ? 'My note: ' + savedNote : 'My note: none';
+    const noteBtn = el('button', 'ghost', 'Edit my note');
+    noteBtn.type = 'button';
+    noteBtn.onclick = () => {
+      const value = prompt('Private note for this bot (only saved in this browser)', (() => { try { return localStorage.getItem(noteKey) || ''; } catch { return ''; } })());
+      if (value === null) return;
+      try { if (value.trim()) localStorage.setItem(noteKey, value.trim().slice(0, 300)); else localStorage.removeItem(noteKey); } catch { toast('Could not save note in this browser', true); return; }
+      render(state);
+    };
+    card.append(note, noteBtn);
 
     const kv = (k, v) => { const r = el('div', 'kv'); r.append(el('span', '', k), el('b', '', v)); return r; };
     card.append(kv('Position', b.pos ? `${b.pos.x} ${b.pos.y} ${b.pos.z}` : '-'));
