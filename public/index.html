@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mining Bots</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>Mining Bots</h1>
+  <span id="conn" class="chip off">getrennt</span>
+  <span class="spacer"></span>
+  <form method="post" action="/logout"><button class="ghost" type="submit">Abmelden</button></form>
+</header>
+
+<main>
+  <section class="card" id="msaCard" hidden>
+    <h2>Microsoft-Anmeldung</h2>
+    <p class="muted">Pro Account einmal: Seite oeffnen, Code eingeben, mit dem passenden Microsoft-Konto anmelden.</p>
+    <div id="msaList"></div>
+  </section>
+
+  <section class="card">
+    <h2>Steuerung</h2>
+    <div class="row">
+      <button id="btnStart" class="primary big">Start</button>
+      <button id="btnStop" class="danger big">Stop</button>
+      <span id="runChip" class="chip off">steht still</span>
+    </div>
+    <p class="muted small" id="runHint"></p>
+  </section>
+
+  <section class="card">
+    <h2>Server &amp; Bots</h2>
+    <div class="grid2">
+      <label>Server-IP <span class="muted">(optional mit :Port)</span>
+        <input id="host" placeholder="play.beispiel.net" autocomplete="off" spellcheck="false">
+      </label>
+      <label>Anmeldung
+        <select id="auth">
+          <option value="offline">Offline-Modus (nur Namen)</option>
+          <option value="microsoft">Microsoft-Accounts (Online-Modus)</option>
+        </select>
+      </label>
+    </div>
+    <label>Bot-Namen bzw. Microsoft-E-Mails <span class="muted">(eine pro Zeile)</span>
+      <textarea id="names" rows="4" placeholder="Miner1&#10;Miner2&#10;Miner3" spellcheck="false"></textarea>
+    </label>
+    <div class="row wrap">
+      <span class="muted small">Namen erzeugen:</span>
+      <input id="genPrefix" value="Miner" size="8" aria-label="Prefix">
+      <input id="genCount" type="number" min="1" max="100" value="5" style="width:5rem" aria-label="Anzahl">
+      <button id="btnGen" class="ghost">Fuellen</button>
+      <span class="spacer"></span>
+      <button id="btnConnect" class="primary">Verbinden</button>
+      <button id="btnDisconnect" class="danger-ghost">Trennen</button>
+    </div>
+    <label>Minecraft-Version
+        <input id="mcVersion" value="auto" placeholder="auto oder z. B. 1.20.4" spellcheck="false">
+      </label>
+      <p class="muted small">„auto“ erkennt die Serverversion. Eine manuelle Version wird an Mineflayer weitergegeben; Versionen außerhalb der installierten Protokollunterstützung funktionieren trotzdem nicht automatisch.</p>
+      <div class="row"><button id="btnVersion" class="ghost">Version speichern</button><span class="muted small">Aktuell: <b id="version">auto</b></span></div>
+    <h3>Einzelnen Bot hinzufügen</h3>
+    <div class="grid2">
+      <label>Bot-/Minecraft-Name<input id="singleName" placeholder="MinerSolo" maxlength="16" autocomplete="off"></label>
+      <label>Login für diesen Bot<select id="singleAuth"><option value="microsoft">Microsoft-Login</option><option value="offline">Offline-Name</option></select></label>
+    </div>
+    <div class="row"><button id="btnAddBot" class="primary">Bot einzeln hinzufügen</button></div>
+    <p class="muted small">Zuerst einmal Server-IP und Port mit „Verbinden“ speichern. Microsoft-Login zeigt anschließend pro Bot den Gerätecode an.</p>
+  </section>
+
+  <section class="card">
+    <h2>Abbau-Bereich</h2>
+    <p class="muted small">Zwei gegenueberliegende Ecken eintragen. Es werden alle Bloecke dazwischen abgebaut, aufgeteilt auf die Bots.</p>
+    <div class="coords">
+      <span class="lbl">Pos 1</span>
+      <input id="x1" type="number" placeholder="X"><input id="y1" type="number" placeholder="Y"><input id="z1" type="number" placeholder="Z">
+    </div>
+    <div class="coords">
+      <span class="lbl">Pos 2</span>
+      <input id="x2" type="number" placeholder="X"><input id="y2" type="number" placeholder="Y"><input id="z2" type="number" placeholder="Z">
+    </div>
+    <div class="row">
+      <button id="btnArea" class="primary">Bereich speichern</button>
+      <span id="areaInfo" class="muted small"></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Einstellungen</h2>
+    <div class="grid3">
+      <label>Reparieren unter
+        <input id="sThreshold" type="number" min="1" max="2500">
+        <span class="muted small">Haltbarkeit</span>
+      </label>
+      <label>Pause pro Flasche
+        <input id="sDelay" type="number" min="250" max="3000" step="50">
+        <span class="muted small">Millisekunden</span>
+      </label>
+      <label>Freie Slots mind.
+        <input id="sFree" type="number" min="0" max="20">
+        <span class="muted small">sonst zur Kiste</span>
+      </label>
+    </div>
+    <div class="coords">
+      <span class="lbl">Kiste</span>
+      <input id="cx" type="number" placeholder="X"><input id="cy" type="number" placeholder="Y"><input id="cz" type="number" placeholder="Z">
+    </div>
+    <p class="muted small">Kiste (optional): Bots legen dort Beute ab und holen sich bei Bedarf XP-Flaschen. Felder leer lassen = keine Kiste.</p>
+    <label class="check"><input id="sLiquid" type="checkbox"> Bloecke neben Wasser/Lava auslassen (verhindert Ueberflutung)</label>
+    <label class="check"><input id="sOutside" type="checkbox"> Tunnel graben erlauben, wenn der Bereich nicht erreichbar ist (baut dann auch ausserhalb ab!)</label>
+    <label>Block-Ausnahmen (kommagetrennte Block-IDs)
+      <input id="sExcluded" placeholder="bedrock, chest, diamond_ore">
+      <span class="muted small">Diese Blöcke werden beim Flächenabbau ausgelassen. Beispiel: chest, barrel, diamond_ore</span>
+    </label>
+    <div class="row"><button id="btnSettings" class="primary">Einstellungen speichern</button></div>
+  </section>
+
+  <section class="card wide">
+    <h2>Bots</h2>
+    <p class="muted small">Jede Bot-Karte kann separat auf AFK/Präsenz, Angeln oder Handel gestellt werden. Angeln benötigt eine Angel im Inventar. Beim Handel kannst du eine Angebotsnummer oder ein Ergebnis-Item (z. B. emerald) und eine maximale Anzahl an Trades angeben.</p>
+    <div id="bots" class="bots"><p class="muted">Noch keine Bots verbunden.</p></div>
+  </section>
+
+  <section class="card">
+    <h2>Befehle</h2>
+    <div class="row wrap">
+      <select id="chatTarget"><option value="all">Alle Bots</option></select>
+      <input id="chatText" class="grow" placeholder="/home  oder  Hallo" maxlength="256" autocomplete="off">
+      <button id="btnChat" class="primary">Senden</button>
+    </div>
+    <p class="muted small">Mit "/" am Anfang wird es als Server-Befehl ausgefuehrt, sonst als Chat-Nachricht.</p>
+  </section>
+
+  <section class="card">
+    <h2>Log</h2>
+    <div id="log" class="log" role="log"></div>
+  </section>
+</main>
+<div id="toast" class="toast" hidden></div>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

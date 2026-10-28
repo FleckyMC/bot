@@ -2,7 +2,7 @@
 
 Bot-Netzwerk für Minecraft **1.21.11** (Mineflayer) mit Web-Dashboard.
 Die Bots bauen einen Bereich zwischen zwei Eckpunkten ab, reparieren ihre Spitzhacke mit XP-Flaschen und
-können vom Dashboard aus gestartet, gestoppt und per Chat/Befehl gesteuert werden.
+können vom Dashboard aus gestartet, gestoppt und per Chat/Befehl gesteuert werden. Zusätzlich gibt es Aufgabenprofile für AFK/Präsenz, Angeln und Dorfbewohner-Handel.
 
 ## Was die Bots machen
 
@@ -63,7 +63,7 @@ Das Dashboard steuert Accounts, die sich auf einem Server einloggen. Es ist durc
    - *Offline-Modus:* nur auf Servern mit `online-mode=false`, beliebige Namen.
    - *Microsoft:* eine E-Mail pro Zeile, pro Account erscheint ein **Code** im Dashboard. Seite öffnen, Code eingeben,
      mit dem passenden Microsoft-Konto anmelden. Das wird gespeichert (Ordner `data/profiles`), nächstes Mal ist das nicht mehr nötig.
-     **Passwörter gibst du nirgends ein.**
+     **Passwörter gibst du nirgends ein.** Ein universeller Session-Token-Login für beliebige Launcher ist nicht enthalten, da Token-Formate und Authentifizierungsabläufe unterschiedlich sind.
 2. **Abbau-Bereich:** zwei Ecken eintragen, **Bereich speichern**.
 3. **Ausrüstung:** Jeder Bot braucht eine **Spitzhacke mit Mending** und **XP-Flaschen** im Inventar. Das legst du den Bots ins Inventar
    (z. B. per Kiste, `/give` oder fallen lassen). Alternativ Kiste in den Einstellungen setzen, dann holen sie sich Flaschen von dort.
@@ -84,7 +84,7 @@ Das Dashboard steuert Accounts, die sich auf einem Server einloggen. Es ist durc
 
 - **Nur mit Erlaubnis des Server-Betreibers** verwenden. Viele Server verbieten Bots und Automation.
 - Die Bots laufen als reine Programme ohne Minecraft-Fenster. Pro Bot rechne mit etwa 50–100 MB RAM.
-- Neue Serverversionen: Setze `MC_VERSION` in `.env`, wenn der Server eine andere Version hat. Mineflayer unterstützt 1.21.11.
+- Minecraft-Version: Standardmäßig wird die Serverversion automatisch erkannt. Alternativ kannst du eine konkrete Versionsnummer eintragen. Die tatsächlich unterstützten Versionen hängen von Mineflayer/minecraft-protocol ab; kein Client kann ohne passende Protokollunterstützung garantiert jede jemals erschienene Version bedienen.
 - Viele Server begrenzen schnelle Logins; die Bots verbinden sich deshalb gestaffelt (5 s Abstand im Offline-Modus).
 - Die Bots essen nicht. Bei langen Läufen am besten Essen bereitstellen oder den Server auf Peaceful/ohne Hunger halten.
 - Wegfindung kann an komplizierten Stellen hängen bleiben; dann überspringt der Bot den Block nach zwei Versuchen.
