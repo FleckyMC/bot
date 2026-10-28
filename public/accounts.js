@@ -38,6 +38,8 @@
         try{await api('/api/admin/users/'+encodeURIComponent(u.id),{method:'PATCH',body:JSON.stringify({botNames:botText.split(',').map(x=>x.trim()).filter(Boolean),expiresAt,botLimit:Number(limitText)||0})});await loadUsers();message('Account updated.');}catch(e){message(e.message,true);}
       };
       actions.append(edit);
+      const view=document.createElement('button');view.className='ghost';view.textContent='View as account';view.onclick=()=>{window.dispatchEvent(new CustomEvent('dashboard:view-as',{detail:{userId:u.id,username:u.username}}));message('Viewing account: '+u.username);};
+      actions.append(view);
       if(u.role!=='admin'){
         const del=document.createElement('button');del.className='danger-ghost';del.textContent='Delete account';
         del.onclick=async()=>{if(!confirm('Delete account '+u.username+'?'))return;try{await api('/api/admin/users/'+encodeURIComponent(u.id),{method:'DELETE'});await loadUsers();message('Account deleted.');}catch(e){message(e.message,true);}};
@@ -52,6 +54,7 @@
     try{await api('/api/admin/users',{method:'POST',body:JSON.stringify(payload)});e.currentTarget.reset();e.currentTarget.elements.botLimit.value='0';await loadUsers();message('Account created.');}catch(err){message(err.message,true);}
   });
   $('refreshAccounts')?.addEventListener('click',loadUsers);
+  $('exitViewAs')?.addEventListener('click',()=>{window.dispatchEvent(new CustomEvent('dashboard:exit-view-as'));message('Returned to admin view.');});
   $('accountSearch')?.addEventListener('input',drawUsers);
   $('changePassword')?.addEventListener('submit',async e=>{
     e.preventDefault();const f=new FormData(e.currentTarget);
