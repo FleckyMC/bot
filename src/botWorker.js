@@ -47,6 +47,8 @@ class BotWorker {
     this.job = null;
     this.jobPromise = Promise.resolve();
     this.stats = { mined: 0, bottles: 0 };
+    this.autoEatBusy = false;
+    this.lastAutomationAt = 0;
     this.profile = 'idle';
     this.profileOptions = {};
     this.resetCursor();
@@ -93,6 +95,7 @@ class BotWorker {
     // Knockback/velocity comes from the Minecraft server; don't pin the entity in place.
     bot.physicsEnabled = true;
     bot.loadPlugin(pathfinder);
+    this.setupAutomation(bot);
 
     bot.once('spawn', () => {
       if (this.bot !== bot) return;
@@ -162,6 +165,43 @@ class BotWorker {
     }];
     bot.pathfinder.setMovements(mv);
     bot.pathfinder.thinkTimeout = 8000;
+  }
+
+
+  setupAutomation(bot) {
+    bot.on('physicsTick', async () => {
+      if (this.bot !== bot || !this.spawned || this.autoEatBusy) return;
+      const now = Date.now();
+      if (now - this.lastAutomationAt < 1200) return;
+      this.lastAutomationAt = now;
+      const settings = this.m.settings || {};
+      const dropNames = new Set((settings.dropItems || []).map((x) => String(x).trim().toLowerCase().replace(/^minecraft:/, '')).filter(Boolean));
+      if (dropNames.size) {
+        const toDrop = bot.inventory.items().find((item) => dropNames.has(item.name.toLowerCase()));
+        if (toDrop) {
+          this.autoEatBusy = true;
+          try { await bot.tossStack(toDrop); this.m.log(this.name, `Dropped configured item: ${toDrop.name}`, 'info'); }
+          catch (e) { this.m.log(this.name, `Item drop failed: ${e.message}`, 'warn'); }
+          finally { this.autoEatBusy = false; }
+          return;
+        }
+      }
+      if (settings.autoEat === false || bot.food == null || bot.food >= Math.max(1, Math.min(20, Number(settings.autoEatThreshold) || 14))) return;
+      const foods = bot.inventory.items().filter((item) => bot.registry.foods && bot.registry.foods[item.type]);
+      if (!foods.length) return;
+      const food = foods.sort((a, b) => {
+        const fa = bot.registry.foods[a.type] || {}, fb = bot.registry.foods[b.type] || {};
+        return (Number(fb.foodPoints) || 0) - (Number(fa.foodPoints) || 0);
+      })[0];
+      this.autoEatBusy = true;
+      try {
+        await bot.equip(food, 'hand');
+        await bot.consume();
+        this.m.log(this.name, `Auto Eat: ate ${food.name}`, 'info');
+      } catch (e) {
+        this.m.log(this.name, `Auto Eat: ${e.message}`, 'warn');
+      } finally { this.autoEatBusy = false; }
+    });
   }
 
   // ---------------------------------------------------------------- Job-Steuerung
