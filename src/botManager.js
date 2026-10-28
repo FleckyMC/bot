@@ -114,7 +114,7 @@ class BotManager extends EventEmitter {
     for (const raw of list) {
       const n = String(raw).trim();
       if (!n) continue;
-      if (auth === 'offline' && !NAME_RE.test(n)) throw new Error(`Ungueltiger Bot-Name "${n}" (3-16 Zeichen: Buchstaben, Zahlen, _)`);
+      
       if (auth === 'microsoft' && !MAIL_RE.test(n) && !NAME_RE.test(n)) throw new Error(`Ungueltiger Account "${n}" (E-Mail-Adresse erwartet)`);
       if (seen.has(n.toLowerCase())) throw new Error(`Doppelter Name "${n}"`);
       seen.add(n.toLowerCase());
@@ -127,7 +127,7 @@ class BotManager extends EventEmitter {
 
   connect(p) {
     const { host, port } = parseHost(p.host, p.port);
-    const auth = p.auth === 'microsoft' ? 'microsoft' : 'offline';
+    const auth = 'microsoft';
     const names = this.parseNames(Array.isArray(p.names) ? p.names : [], auth);
 
     this.disconnect(true);
