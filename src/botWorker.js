@@ -35,7 +35,7 @@ class BotWorker {
   constructor(manager, name) {
     this.m = manager;
     this.name = name;
-    this.authMethod = 'offline';
+    this.authMethod = 'microsoft';
     this.bot = null;
     this.spawned = false;
     this.status = 'offline';
@@ -78,8 +78,8 @@ class BotWorker {
         port: c.port || 25565,
         username: this.name,
         ...(m.version && m.version !== 'auto' ? { version: m.version } : {}),
-        auth: this.authMethod === 'microsoft' ? 'microsoft' : 'offline',
-        profilesFolder: this.authMethod === 'microsoft' ? path.join(m.dataDir, 'profiles', safe) : undefined,
+        auth: 'microsoft',
+        profilesFolder: path.join(m.dataDir, 'profiles', safe),
         onMsaCode: (data) => m.setMsa(this.name, data),
         viewDistance: 'short',
         checkTimeoutInterval: 60000,
