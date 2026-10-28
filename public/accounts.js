@@ -61,5 +61,5 @@
     try{await api('/api/password',{method:'POST',body:JSON.stringify({currentPassword:f.get('currentPassword'),newPassword:f.get('newPassword')})});e.currentTarget.reset();message('Password updated.');}
     catch(err){message(err.message,true);}
   });
-  api('/api/me').then(({user})=>{if(user?.role==='admin'){$('accountPanel').hidden=false;loadUsers();}}).catch(()=>{});
+  api('/api/me').then(({user})=>{if(user?.role==='admin'){$('accountPanel').hidden=false;const nav=$('adminNav');if(nav)nav.hidden=false;loadUsers();}}).catch(()=>{});
 })();
