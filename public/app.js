@@ -26,6 +26,21 @@ function act(type, payload, okMsg) {
   });
 }
 
+window.addEventListener('dashboard:view-as', (event) => {
+  const userId = event.detail && event.detail.userId;
+  if (!userId) return;
+  socket.emit('action','view_as',{userId},(res)=>{
+    if (!res || !res.ok) toast((res && res.error)||'Could not switch account view',true);
+    else { toast('Viewing account: '+(event.detail.username||'user')); const p=$('accountPanel'); if(p) p.dataset.viewAs='true'; }
+  });
+});
+window.addEventListener('dashboard:exit-view-as', () => {
+  socket.emit('action','exit_view_as',{},(res)=>{
+    if (!res || !res.ok) toast((res && res.error)||'Could not exit account view',true);
+    else { toast('Admin view restored'); const p=$('accountPanel'); if(p) delete p.dataset.viewAs; }
+  });
+});
+
 const num = (id) => {
   const v = $(id).value.trim();
   return v === '' ? NaN : Number(v);
