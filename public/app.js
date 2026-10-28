@@ -63,7 +63,6 @@ const STATUS = {
 
 function fillForms(s) {
   $('host').value = s.connection.host ? s.connection.host + (s.connection.port ? ':' + s.connection.port : '') : '';
-  $('auth').value = s.connection.auth || 'offline';
   $('names').value = (s.names || []).join('\n');
   $('version').textContent = s.version || 'auto';
   if ($('mcVersion')) $('mcVersion').value = s.version || 'auto';
@@ -145,7 +144,7 @@ function render(s) {
     const top = el('div', 'top');
     top.append(el('span', 'name', b.accountName || b.name), el('span', 'chip ' + cls, label));
     card.append(top);
-    const account = el('div', 'detail', b.accountName ? `Minecraft-Spieler: ${b.accountName}` : (b.authMethod === 'microsoft' ? 'Minecraft-Spieler: wird nach Login angezeigt' : `Offline-Name: ${b.name}`));
+    const account = el('div', 'detail', b.accountName ? `Minecraft-Spieler: ${b.accountName}` : 'Minecraft player: shown after Microsoft login');
     card.append(account, el('div', 'detail', b.detail || ' '));
     const noteKey = 'bot-note:' + b.name;
     const note = el('div', 'detail bot-note');
@@ -288,14 +287,14 @@ $('btnStop').onclick = () => act('stop', {}, 'Gestoppt');
 
 $('btnConnect').onclick = () => act('connect_bots', {
   host: $('host').value,
-  auth: $('auth').value,
+  auth: 'microsoft',
   names: $('names').value.split(/\r?\n/),
 }, 'Verbinde...');
 $('btnDisconnect').onclick = () => { if (confirm('Alle Bots trennen?')) act('disconnect_bots', {}, 'Getrennt'); };
 $('btnAddBot').onclick = () => {
   const name = $('singleName').value.trim();
   if (!name) return toast('Bitte einen Bot-Namen eingeben', true);
-  act('add_bot', { name, auth: $('singleAuth').value }, `Bot ${name} wird hinzugefügt`);
+  act('add_bot', { name, auth: 'microsoft' }, `Bot ${name} wird hinzugefügt`);
 };
 
 $('btnGen').onclick = () => {
