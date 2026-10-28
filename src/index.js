@@ -125,10 +125,10 @@ const actions = {
   remove_bot: (p) => manager.removeBot(p && p.name),
 };
 
+const owned = (name, user) => isAdmin(user) || (Array.isArray(user && user.botNames) && user.botNames.includes(name));
+const snapshotFor = (user) => { const snap=manager.snapshot(); if (isAdmin(user)) return snap; snap.bots=snap.bots.filter(b=>owned(b.name,user)); snap.names=snap.bots.map(b=>b.name); return {...snap,connection:null,area:null,settings:{},mining:false}; };
 io.on('connection', (socket) => {
   const currentUser = () => auth.getUsers().find(u => u.id === socketUserById.get(socket.id));
-  const owned = (name, user) => isAdmin(user) || (Array.isArray(user && user.botNames) && user.botNames.includes(name));
-  const snapshotFor = (user) => { const snap=manager.snapshot(); if (isAdmin(user)) return snap; snap.bots=snap.bots.filter(b=>owned(b.name,user)); snap.names=snap.bots.map(b=>b.name); return {...snap,connection:null,area:null,settings:{},mining:false}; };
   socket.emit('init', { state: snapshotFor(currentUser()), logs: isAdmin(currentUser()) ? manager.logs.slice(-200) : [] });
   socket.on('action', async (type, payload, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
@@ -148,11 +148,11 @@ io.on('connection', (socket) => {
       reply({ ok: false, error: e.message });
     }
   });
+  socket.on('disconnect', () => socketUserById.delete(socket.id));
 });
 
 manager.on('log', (entry) => { for (const socket of io.sockets.sockets.values()) { const u=auth.getUsers().find(x=>x.id===socketUserById.get(socket.id)); if (isAdmin(u) || (u && u.botNames.includes(entry.source))) socket.emit('log', entry); } });
 manager.on('change', () => { for (const socket of io.sockets.sockets.values()) { const u=auth.getUsers().find(x=>x.id===socketUserById.get(socket.id)); socket.emit('state', snapshotFor(u)); } });
-socket.on('disconnect', () => socketUserById.delete(socket.id));
 setInterval(() => { if (io.engine.clientsCount) for (const socket of io.sockets.sockets.values()) { const u=auth.getUsers().find(x=>x.id===socketUserById.get(socket.id)); socket.emit('state', snapshotFor(u)); } }, 1000).unref();
 
 process.on('unhandledRejection', (e) => manager.log('system', `Unbehandelter Fehler: ${e && e.message ? e.message : e}`, 'error'));
