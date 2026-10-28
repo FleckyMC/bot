@@ -104,6 +104,7 @@ function render(s) {
   run.textContent = s.mining ? 'laeuft' : 'steht still';
   run.className = 'chip ' + (s.mining ? 'ok' : 'off');
   $('runHint').textContent = !s.area ? 'Zuerst einen Bereich speichern.' : !s.bots.length ? 'Zuerst Bots verbinden.' : '';
+  if ($('btnStartMining')) $('btnStartMining').disabled = s.mining || !s.bots.length || !s.area;
   $('areaInfo').textContent = s.area ? `${s.areaVolume.toLocaleString('de-DE')} Bloecke gespeichert` : '';
 
   // Microsoft-Codes
@@ -282,6 +283,7 @@ socket.on('disconnect', () => toast('Verbindung zum Dashboard getrennt', true));
 
 $('btnVersion').onclick = () => act('set_version', { version: $('mcVersion').value }, 'Minecraft-Version gespeichert');
 $('btnStop').onclick = () => act('stop', {}, 'Gestoppt');
+$('btnStartMining')?.addEventListener('click', () => act('start', {}, 'Mining gestartet'));
 
 $('btnConnect').onclick = () => act('connect_bots', {
   host: $('host').value,
