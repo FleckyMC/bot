@@ -212,6 +212,12 @@ class BotManager extends EventEmitter {
     if (p.fishingThreshold !== undefined) s.fishingThreshold = int(p.fishingThreshold, 1, 64, 'Angel-Haltbarkeit');
     if (p.fishingUseMending !== undefined) s.fishingUseMending = !!p.fishingUseMending;
     if (p.fishingDeposit !== undefined) s.fishingDeposit = !!p.fishingDeposit;
+    if (p.autoEat !== undefined) s.autoEat = !!p.autoEat;
+    if (p.autoEatThreshold !== undefined) s.autoEatThreshold = int(p.autoEatThreshold, 1, 20, 'Auto Eat threshold');
+    if (p.dropItems !== undefined) {
+      if (!Array.isArray(p.dropItems)) throw new Error('Drop items must be a list');
+      s.dropItems = [...new Set(p.dropItems.map(x => String(x).trim().toLowerCase().replace(/^minecraft:/, '')).filter(x => /^[a-z0-9_]+$/.test(x)))].slice(0, 128);
+    }
     if (p.collectEvery !== undefined) s.collectEvery = int(p.collectEvery, 1, 100, 'Einsammeln alle');
     if (p.avoidLiquid !== undefined) s.avoidLiquid = !!p.avoidLiquid;
     if (p.allowDigOutside !== undefined) s.allowDigOutside = !!p.allowDigOutside;
