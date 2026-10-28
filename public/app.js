@@ -247,6 +247,7 @@ function addLog(e) {
 
 // ------------------------------------------------------------ Socket
 
+socket.on('view_as_changed', ({active}) => { const p=$('accountPanel'); if(p) p.hidden=!!active; });
 socket.on('init', ({ state: s, logs }) => {
   formsFilled = false;
   render(s);
