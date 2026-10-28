@@ -81,6 +81,9 @@ function fillForms(s) {
   $('sOutside').checked = !!s.settings.allowDigOutside;
   $('sExcluded').value = (s.settings.excludedBlocks || []).join(', ');
   if (s.settings.chest) { $('cx').value = s.settings.chest.x; $('cy').value = s.settings.chest.y; $('cz').value = s.settings.chest.z; }
+  if ($('autoEat')) $('autoEat').checked = s.settings.autoEat !== false;
+  if ($('autoEatThreshold')) $('autoEatThreshold').value = s.settings.autoEatThreshold ?? 14;
+  if ($('dropItems')) $('dropItems').value = (s.settings.dropItems || []).join(', ');
   formsFilled = true;
 }
 
@@ -306,6 +309,9 @@ $('btnSettings').onclick = () => {
     fishingThreshold: num('fishThreshold'),
     fishingUseMending: $('fishMending').checked,
     fishingDeposit: $('fishDeposit').checked,
+    autoEat: $('autoEat').checked,
+    autoEatThreshold: num('autoEatThreshold'),
+    dropItems: $('dropItems').value.split(',').map(x => x.trim().toLowerCase().replace(/^minecraft:/, '')).filter(Boolean),
     avoidLiquid: $('sLiquid').checked,
     allowDigOutside: $('sOutside').checked,
     excludedBlocks: $('sExcluded').value.split(',').map(x => x.trim()).filter(Boolean),
