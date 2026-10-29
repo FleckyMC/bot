@@ -359,7 +359,7 @@ function addLog(e) {
 
 socket.on('view_as_changed', ({active}) => { const p=$('accountPanel'); if(!p)return; p.hidden=false; const create=$('createAccount'), list=$('accountList'), search=$('accountSearch'), refresh=$('refreshAccounts'), exit=$('exitViewAs'); if(create)create.hidden=!!active; if(list)list.hidden=!!active; if(search&&search.parentElement)search.parentElement.hidden=!!active; if(refresh)refresh.hidden=!!active; if(exit)exit.hidden=!active; });
 socket.on('init', ({ state: s, logs }) => {
-  formsFilled = false;
+  // Keep in-progress form edits (especially the server address) on socket reconnect.
   render(s);
   logBox.replaceChildren();
   logs.forEach(addLog);
