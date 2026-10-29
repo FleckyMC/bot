@@ -39,3 +39,22 @@ body:has(#msaCard:not([hidden])):after{content:"";position:fixed;inset:0;z-index
 .account-edit-dialog::backdrop{background:rgba(0,0,0,.6)}
 .account-bot-editor{display:grid;gap:14px;margin-bottom:14px}
 .account-bot-editor select{min-height:120px}
+
+
+/* Account assignment dropdown: collapsible, searchable-feeling multi-select */
+.bot-picker{position:relative;margin-top:8px}
+.bot-picker>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:42px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface2);cursor:pointer;color:var(--text);font-size:12px;overflow-wrap:anywhere}
+.bot-picker>summary::-webkit-details-marker{display:none}
+.bot-picker>summary:after{content:'▾';color:var(--muted);flex:0 0 auto}
+.bot-picker[open]>summary{border-color:var(--accent);border-bottom-left-radius:0;border-bottom-right-radius:0}
+.bot-picker[open]>summary:after{content:'▴'}
+.bot-picker-menu{display:grid;gap:2px;max-height:220px;overflow:auto;padding:7px;border:1px solid var(--accent);border-top:0;border-radius:0 0 10px 10px;background:var(--surface);box-shadow:var(--shadow)}
+.bot-picker-option{display:flex;align-items:center;gap:9px;padding:9px;border-radius:7px;cursor:pointer;font-size:12px;overflow-wrap:anywhere}
+.bot-picker-option:hover{background:var(--surface2)}
+.bot-picker-option input{width:16px;height:16px;flex:0 0 auto;accent-color:var(--accent)}
+#bots .bot-details{display:block}
+#bots .bot-summary .chip{flex:0 0 auto}
+#bots .bot-summary .server-name:empty{display:none}
+#bots .bot-summary .server-name{max-width:42%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#bots .bot-summary .chip.err{color:#fff}
+#accountPanel select[multiple]{display:none}
