@@ -7,10 +7,11 @@ let msaModalDismissed = false;
 let lastMsaSignature = '';
 const selectedConnectBots = new Set();
 const inventoryShown = new Set();
+const expandedBotCards = new Set();
 let lastScroll = { x: 0, y: 0 };
 const ITEM_ICONS = { fishing_rod: '🎣', experience_bottle: '🧪', diamond: '💎', emerald: '🟩', iron_ingot: '🔩', gold_ingot: '🪙', coal: '⚫', cooked_cod: '🐟', cod: '🐟', salmon: '🐠', enchanted_book: '📘', bow: '🏹', arrow: '➶', chest: '📦', barrel: '🛢️', bread: '🍞', apple: '🍎', pickaxe: '⛏️' };
 const botNote = (name) => { try { return localStorage.getItem('bot-note:' + name) || ''; } catch { return ''; } };
-const displayBotName = (b) => b.accountName || 'Minecraft profile pending';
+const displayBotName = (b) => b.accountName || 'Minecraft account';
 const itemIcon = (name) => ITEM_ICONS[name] || (name.includes('pickaxe') ? '⛏️' : name.includes('sword') ? '⚔️' : name.includes('fish') ? '🐟' : name.includes('ore') ? '🪨' : name.includes('log') ? '🪵' : name.includes('planks') ? '🪵' : name.includes('armor') || name.includes('helmet') ? '🛡️' : name.includes('potion') ? '🧪' : name.includes('wool') ? '🧶' : '📦');
 
 // ------------------------------------------------------------ Hilfen
@@ -59,7 +60,7 @@ function el(tag, cls, text) {
 }
 
 const STATUS = {
-  fishing: ['fishing', 'ok'], trading: ['trading', 'warn'], offline: ['disconnected', ''], connecting: ['connecting', 'warn'], reconnecting: ['reconnecting', 'warn'],
+  fishing: ['fishing', 'ok'], trading: ['trading', 'warn'], offline: ['Offline', 'err'], connecting: ['Connecting', 'warn'], reconnecting: ['Reconnecting', 'warn'],
   idle: ['ready', 'ok'], mining: ['mining', 'ok'], repairing: ['repairing', 'warn'],
   depositing: ['Chest', 'warn'], done: ['done', 'ok'], error: ['Error', 'err'],
 };
@@ -67,12 +68,7 @@ const STATUS = {
 // ------------------------------------------------------------ Formulare befuellen (einmalig)
 
 function fillForms(s) {
-  // Never replace a server address while the user is editing it or has typed a draft.
-  // Socket state updates can arrive while the initial dashboard snapshot is still loading.
-  const hostInput = $('host');
-  if (hostInput && document.activeElement !== hostInput && !hostInput.value.trim()) {
-    hostInput.value = s.connection.host ? s.connection.host + (s.connection.port ? ':' + s.connection.port : '') : '';
-  }
+  // Keep server address empty until the user enters it explicitly; account sign-in is independent.
   // The old bulk-names input was removed; accounts are now added and selected individually.
   if ($('names')) $('names').value = (s.names || []).join('\n');
   $('version').textContent = s.version || 'auto';
@@ -108,7 +104,7 @@ function render(s) {
 
   const online = s.bots.filter((b) => b.pos).length;
   const c = $('conn');
-  c.textContent = s.bots.length ? `${online}/${s.bots.length} online` : 'disconnected';
+  c.textContent = `${online}/${s.bots.length} online`;
   c.className = 'chip ' + (online ? 'ok' : 'off');
 
   const run = $('runChip');
@@ -118,21 +114,8 @@ function render(s) {
   if ($('btnStartMining')) $('btnStartMining').disabled = s.mining || !s.bots.length || !s.area;
   $('areaInfo').textContent = s.area ? `${s.areaVolume.toLocaleString('de-DE')} blocks saved` : '';
 
-  // Microsoft-Codes. The Activity Log is also a fallback source in case a state
-  // snapshot arrives without the msa field (for example during a reconnect).
-  const msaByName = new Map();
-  for (const b of s.bots) {
-    if (b.msa && b.msa.code && (!b.msa.expiresAt || b.msa.expiresAt > Date.now())) msaByName.set(b.name, b);
-    else if (b.newAccountSignIn && !b.accountName && (b.status === 'connecting' || b.status === 'reconnecting')) {
-      // Show the sign-in panel immediately, even while prismarine-auth is still
-      // waiting for Microsoft's device-code response.
-      msaByName.set(b.name, {
-        ...b,
-        msa: { code: '', url: 'https://www.microsoft.com/link', pending: true },
-      });
-    }
-  }
-  const msa = [...msaByName.values()];
+  // Microsoft codes belong only to active account-creation flows; saved accounts never reuse old codes.
+  const msa = (s.pendingSignIns || []).map((p) => ({ ...p, accountName: 'Microsoft account', msa: p.msa || { code: '', url: 'https://www.microsoft.com/link', pending: true } }));
   const msaSignature = msa.map((b) => `${b.name}:${b.msa.code || (b.msa.pending ? 'pending' : '')}`).join('|');
   if (msaSignature !== lastMsaSignature) { msaModalDismissed = false; lastMsaSignature = msaSignature; }
   $('msaCard').hidden = !msa.length || msaModalDismissed;
@@ -206,7 +189,7 @@ function render(s) {
   if (choices) {
     const search = ($('connectBotSearch')?.value || '').trim().toLowerCase();
     choices.replaceChildren();
-    const bots = s.bots.filter((b) => !search || String(b.accountName || 'Minecraft profile pending').toLowerCase().includes(search) || b.name.toLowerCase().includes(search));
+    const bots = s.bots.filter((b) => !search || String(b.accountName || '').toLowerCase().includes(search));
     if (!bots.length) choices.append(el('p', 'muted', s.bots.length ? 'No bots match your search.' : 'No saved bot accounts yet.'));
     for (const b of bots) {
       const label = el('label', 'connect-bot-choice');
@@ -219,7 +202,7 @@ function render(s) {
       });
       const info = el('span', 'connect-bot-info');
       const note = botNote(b.name).trim();
-      info.append(el('b', '', displayBotName(b) + (note ? ' · ' + note : '')), el('small', '', b.pos ? `Connected · ${state.connection?.host || ''}${state.connection?.port && state.connection.port !== 25565 ? ':' + state.connection.port : ''}` : (b.status === 'error' ? (b.detail || 'Authentication error') : (b.detail || (b.newAccountSignIn ? 'Microsoft sign-in in progress' : b.status)))));
+      info.append(el('b', '', displayBotName(b) + (note ? ' · ' + note : '')), el('small', '', b.pos ? `Online · ${state.connection?.host || ''}${state.connection?.port && state.connection.port !== 25565 ? ':' + state.connection.port : ''}` : 'Offline'));
       label.append(checkbox, info);
       choices.append(label);
     }
@@ -234,7 +217,7 @@ function render(s) {
     const connected = !!b.pos;
     const matchesStatus = filter === 'all' || (filter === 'online' ? connected : !connected);
     const note = botNote(b.name).toLowerCase();
-    const matchesSearch = !query || displayBotName(b).toLowerCase().includes(query) || note.includes(query);
+    const matchesSearch = !query || displayBotName(b).toLowerCase().includes(query) || String(b.name || '').toLowerCase().includes(query) || note.includes(query);
     return matchesStatus && matchesSearch;
   });
   if (!visibleBots.length) { box.append(el('p', 'muted', s.bots.length ? 'No bots match these filters.' : 'No saved bot accounts yet.')); return; }
@@ -243,8 +226,11 @@ function render(s) {
     const card = el('div', 'bot');
     const details = el('details', 'bot-details');
     const top = el('summary', 'bot-summary');
-    const server = b.pos ? `${s.connection?.host || 'Server'}${s.connection?.port && s.connection.port !== 25565 ? ':' + s.connection.port : ''}` : 'Disconnected';
-    top.append(el('span', 'name', displayBotName(b)), el('span', 'server-name', server), el('span', 'chip ' + cls, label));
+    const server = b.pos ? `${s.connection?.host || 'Server'}${s.connection?.port && s.connection.port !== 25565 ? ':' + s.connection.port : ''}` : '';
+    const cardOnline = !!b.pos;
+    top.append(el('span', 'name', displayBotName(b)), el('span', 'server-name', server), el('span', 'chip ' + (cardOnline ? 'ok' : 'err'), cardOnline ? 'Online' : 'Offline'));
+    details.open = expandedBotCards.has(b.name);
+    details.addEventListener('toggle', () => { if (details.open) expandedBotCards.add(b.name); else expandedBotCards.delete(b.name); });
     details.append(top);
     if (b.detail && !b.pos) details.append(el('div', 'detail', b.detail));
     const noteKey = 'bot-note:' + b.name;
@@ -408,13 +394,7 @@ $('btnDisconnect').onclick = () => { const names = [...selectedConnectBots]; if 
 $('closeMsaModal').onclick = () => { msaModalDismissed = true; $('msaCard').hidden = true; };
 
 $('btnAddBot').onclick = () => {
-  const host = $('host').value.trim();
-  if (!host) {
-    toast('Enter the Minecraft server address first.', true);
-    $('host').focus();
-    return;
-  }
-  act('add_bot', { auth: 'microsoft', host }, 'Starting Microsoft sign-in…');
+  act('add_bot', { auth: 'microsoft' }, 'Starting Microsoft sign-in…');
 };
 
 $('btnArea').onclick = () => {
