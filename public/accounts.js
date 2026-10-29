@@ -23,11 +23,37 @@
     for(const b of available){
       const opt=document.createElement('option');
       opt.value=b.accountName||b.name;
-      opt.textContent=(b.accountName||'Minecraft account pending')+(b.assignedTo?' · assigned to '+b.assignedTo:'');
+      opt.textContent=(b.accountName||'Minecraft account')+(b.assignedTo?' · assigned to '+b.assignedTo:'');
       opt.selected=chosen.has(b.name)||chosen.has(b.accountName);
       select.append(opt);
     }
+    select.multiple=true;
+    select.hidden=true;
+    select.setAttribute('aria-hidden','true');
+    select.tabIndex=-1;
+    const old=select.nextElementSibling;
+    if(old&&old.classList.contains('bot-picker'))old.remove();
+    const picker=document.createElement('details');picker.className='bot-picker';
+    const summary=document.createElement('summary');
+    const updateSummary=()=>{
+      const values=[...select.selectedOptions].map(o=>o.textContent.split(' · assigned to ')[0]);
+      summary.textContent=values.length?values.join(', '):'Choose bots…';
+      if(values.length>2)summary.textContent=values.slice(0,2).join(', ')+` +${values.length-2} more`;
+    };
+    const menu=document.createElement('div');menu.className='bot-picker-menu';
+    if(!available.length){const empty=document.createElement('p');empty.className='hint';empty.textContent='No available bots yet.';menu.append(empty);}
+    for(const opt of [...select.options]){
+      const label=document.createElement('label');label.className='bot-picker-option';
+      const checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.checked=opt.selected;
+      checkbox.addEventListener('change',()=>{opt.selected=checkbox.checked;updateSummary();});
+      const text=document.createElement('span');text.textContent=opt.textContent;
+      label.append(checkbox,text);menu.append(label);
+    }
+    picker.append(summary,menu);
+    select.insertAdjacentElement('afterend',picker);
+    updateSummary();
   }
+
   async function loadUsers(){
     try { await loadBots(); const d=await api('/api/admin/users'); users=d.users||[]; drawUsers(); makeBotSelect($('createBotNames')); }
     catch(e){ message(e.message,true); }
