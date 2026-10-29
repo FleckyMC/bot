@@ -183,25 +183,30 @@ class BotManager extends EventEmitter {
     this.touch();
   }
 
-  addBot() {
+  addBot(p = {}) {
+    // The native Mineflayer Microsoft flow needs a target server to start.
+    // Keep the UX explicit: enter the server address, then click Add Microsoft account.
+    const { host, port } = parseHost(p.host, p.port);
+    this.connection = { ...this.connection, host, port: port || 25565, auth: 'microsoft' };
+    this.save();
+
     let index = 1;
     while (this.workers.has(`MicrosoftAccount${index}`)) index++;
     const name = `MicrosoftAccount${index}`;
     const safe = name.replace(/[^A-Za-z0-9_.@-]/g, '_');
-    // Use Mineflayer's native Microsoft auth when the account is connected to a server.
-    // A separate pre-authentication flow caused a second, competing sign-in request.
     const profileDir = path.join(this.dataDir, 'profiles', `${safe}-${Date.now()}`);
     const w = new BotWorker(this, name);
     w.profileDir = profileDir;
     this.accountProfiles[name] = profileDir;
     w.authMethod = 'microsoft';
-    w.wantConnected = false;
-    w.status = 'offline';
-    w.detail = 'Account added. Enter the server address, select this account, and connect to start Microsoft sign-in.';
+    w.wantConnected = true;
+    w.status = 'connecting';
+    w.detail = 'Starting Microsoft sign-in';
     this.workers.set(name, w);
     this.names = [...new Set([...this.names, name])];
     this.save();
-    this.log('system', 'Microsoft account added. Select it and connect to the server to request a sign-in code.', 'info');
+    this.log('system', `Starting Microsoft sign-in and connecting to ${host}:${this.connection.port}. Complete the device-code prompt when it appears.`, 'info');
+    w.connect();
     this.touch();
   }
 
