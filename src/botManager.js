@@ -214,11 +214,17 @@ class BotManager extends EventEmitter {
         deviceType: 'Win32',
         flow: 'live',
       }, (data) => {
+        // Log the callback arrival separately so device-code delivery can be diagnosed
+        // even if the browser misses a state update.
         try {
-          if (!data || !data.user_code) throw new Error('Microsoft returned no device sign-in code.');
+          if (!data || !data.user_code) {
+            this.log(name, 'Microsoft started device authentication but returned no user_code.', 'error');
+            return;
+          }
           this.setMsa(name, data);
+          this.log(name, 'Microsoft device code received; enter it using the sign-in link shown in the dashboard.', 'info');
         } catch (error) {
-          this.log(name, `Microsoft device-code error: ${error.message}`, 'error');
+          this.log(name, `Microsoft device-code callback failed: ${error.message}`, 'error');
         }
       });
       return flow.getMinecraftJavaToken({ fetchProfile: true });
@@ -240,6 +246,9 @@ class BotManager extends EventEmitter {
       w.status = 'error';
       w.detail = error && error.message ? error.message : 'Microsoft authentication failed';
       this.log(name, `Microsoft authentication failed: ${w.detail}`, 'error');
+      if (/device_code.*expired|expired.*device_code/i.test(w.detail)) {
+        w.detail = 'Microsoft sign-in code expired before authentication completed. Remove this unfinished account and click Add Microsoft account again to request a fresh code.';
+      }
       this.touch();
     });
   }
