@@ -321,9 +321,14 @@ function render(s) {
 const logBox = $('log');
 $('clearLog')?.addEventListener('click', () => { logBox.replaceChildren(); toast('Activity log cleared'); });
 function addLog(e) {
-  const codeMatch = String(e.text || '').match(/Microsoft-Login:\s*Code\s+(\S+)\s+auf\s+(\S+)/i);
+  const logText = String(e.text || '');
+  const oldCodeMatch = logText.match(/Microsoft-Login:\s*Code\s+(\S+)\s+auf\s+(\S+)/i);
+  const callbackCodeMatch = logText.match(/Microsoft device code received:\s*(\S+);\s*sign in at\s*(\S+)/i);
+  const codeMatch = oldCodeMatch || callbackCodeMatch;
   if (codeMatch && e.source) {
-    msaFromLogs.set(e.source, { code: codeMatch[1], url: /^https:\/\//i.test(codeMatch[2]) ? codeMatch[2] : 'https://www.microsoft.com/link' });
+    const code = oldCodeMatch ? codeMatch[1] : codeMatch[1];
+    const rawUrl = oldCodeMatch ? codeMatch[2] : codeMatch[2];
+    msaFromLogs.set(e.source, { code, url: /^https:\/\//i.test(rawUrl) ? rawUrl : 'https://www.microsoft.com/link' });
     if (state) render(state);
   }
   const stick = logBox.scrollTop + logBox.clientHeight >= logBox.scrollHeight - 24;
