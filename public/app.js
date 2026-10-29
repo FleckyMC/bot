@@ -177,7 +177,6 @@ function render(s) {
       const checkbox = el('input');
       checkbox.type = 'checkbox';
       checkbox.checked = selectedConnectBots.has(b.name);
-      checkbox.disabled = !!b.pos;
       checkbox.addEventListener('change', () => {
         if (checkbox.checked) selectedConnectBots.add(b.name);
         else selectedConnectBots.delete(b.name);
@@ -347,14 +346,14 @@ $('btnConnect').onclick = () => {
 };
 $('connectBotSearch')?.addEventListener('input', () => { if (state) render(state); });
 $('selectAllBots')?.addEventListener('click', () => {
-  if (state) state.bots.forEach((b) => { if (!b.pos) selectedConnectBots.add(b.name); });
+  if (state) state.bots.forEach((b) => selectedConnectBots.add(b.name));
   if (state) render(state);
 });
 $('deselectAllBots')?.addEventListener('click', () => {
   selectedConnectBots.clear();
   if (state) render(state);
 });
-$('btnDisconnect').onclick = () => { if (confirm('All bots trennen?')) act('disconnect_bots', {}, 'Disconnected'); };
+$('btnDisconnect').onclick = () => { const names = [...selectedConnectBots]; if (!names.length) return toast('Select at least one bot first.', true); if (confirm('Disconnect selected bots?')) act('disconnect_selected', { names }, 'Selected bots disconnected'); };
 $('closeMsaModal').onclick = () => { msaModalDismissed = true; $('msaCard').hidden = true; };
 
 $('btnAddBot').onclick = () => {
