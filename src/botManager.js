@@ -147,11 +147,11 @@ class BotManager extends EventEmitter {
     this.touch();
   }
 
-  addBot(p) {
-    const name = String(p.name || '').trim();
-    if (!NAME_RE.test(name)) throw new Error('Bot-Name muss 3-16 Zeichen haben (Buchstaben, Zahlen, _)');
-    if (!this.connection.host) throw new Error('Bitte zuerst Server-IP speichern/verbinden');
-    if (this.workers.has(name)) throw new Error('Dieser Bot existiert bereits');
+  addBot() {
+    if (!this.connection.host) throw new Error('Please enter and save the server address first.');
+    let index = 1;
+    while (this.workers.has(`MicrosoftAccount${index}`)) index++;
+    const name = `MicrosoftAccount${index}`;
     const auth = 'microsoft';
     const w = new BotWorker(this, name);
     w.authMethod = auth;
@@ -159,7 +159,7 @@ class BotManager extends EventEmitter {
     this.workers.set(name, w);
     this.names = [...new Set([...this.names, name])];
     this.save();
-    this.log('system', `Bot ${name} wird einzeln verbunden (${auth})`, 'info');
+    this.log('system', 'Starting Microsoft sign-in for a new bot account', 'info');
     w.connect();
     this.touch();
   }
