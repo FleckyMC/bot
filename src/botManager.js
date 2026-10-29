@@ -132,6 +132,7 @@ class BotManager extends EventEmitter {
     const names = this.parseNames(Array.isArray(p.names) ? p.names : [], auth);
 
     this.disconnect(true);
+    this.workers.clear();
     this.connection = { host, port, auth };
     this.names = names;
     this.save();
@@ -222,9 +223,8 @@ class BotManager extends EventEmitter {
   disconnect(silent = false) {
     this.mining = false;
     for (const w of this.workers.values()) w.disconnect();
-    this.workers.clear();
     this.msa.clear();
-    if (!silent) this.log('system', 'Alle Bots getrennt', 'info');
+    if (!silent) this.log('system', 'All bots disconnected. Saved bot accounts are still available to select and reconnect.', 'info');
     this.touch();
   }
 
