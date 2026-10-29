@@ -30,6 +30,7 @@ class BotManager extends EventEmitter {
     this.connection = cfg.connection;
     this.version = version && version !== 'auto' ? version : (cfg.version || 'auto');
     this.names = cfg.names;
+    this.accountNames = cfg.accountNames || {};
     this.area = cfg.area;
     this.settings = cfg.settings;
     this.workers = new Map();
@@ -44,7 +45,7 @@ class BotManager extends EventEmitter {
   save() {
     try {
       config.save(this.file, {
-        connection: this.connection, version: this.version, names: this.names, area: this.area, settings: this.settings,
+        connection: this.connection, version: this.version, names: this.names, accountNames: this.accountNames, area: this.area, settings: this.settings,
       });
     } catch (e) { this.log('system', `Konfiguration konnte nicht gespeichert werden: ${e.message}`, 'warn'); }
   }
@@ -172,7 +173,11 @@ class BotManager extends EventEmitter {
     Promise.resolve(flow.getMinecraftJavaToken({ fetchProfile: true })).then((result) => {
       if (this.workers.get(name) !== w) return;
       this.clearMsa(name);
-      w.accountName = result && result.profile && result.profile.name || null;
+      const profileName = result && result.profile && result.profile.name;
+      if (!profileName) throw new Error('Microsoft login completed, but no Minecraft Java profile was returned. Check that this Microsoft account owns Minecraft Java Edition.');
+      w.accountName = profileName;
+      this.accountNames[name] = profileName;
+      this.save();
       w.status = 'offline';
       w.detail = 'Microsoft account authenticated. Select this bot and connect to the Minecraft server when ready.';
       this.log(name, 'Microsoft account authenticated. Bot is not connected to the Minecraft server.', 'info');
