@@ -101,6 +101,11 @@ class BotWorker {
       if (this.bot !== bot) return;
       this.spawned = true;
       this.attempts = 0;
+      if (bot.username && bot.username !== this.accountName) {
+        this.accountName = bot.username;
+        this.m.accountNames[this.name] = bot.username;
+        this.m.save();
+      }
       m.clearMsa(this.name);
       this.setupMovements();
       m.log(this.name, 'Verbunden und gespawnt', 'info');
@@ -802,7 +807,7 @@ class BotWorker {
     const snap = {
       name: this.name,
       profile: this.profile,
-      accountName: this.accountName || (bot && bot.username ? bot.username : null),
+      accountName: this.accountName || this.m.accountNames?.[this.name] || (bot && bot.username ? bot.username : null),
       authMethod: this.authMethod || this.m.connection.auth || 'microsoft',
       status: this.status,
       detail: this.detail,
