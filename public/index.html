@@ -13,7 +13,7 @@
   <section class="panel msa-modal-panel" id="msaCard" hidden><div class="section-heading"><div><p class="eyebrow">SIGN IN</p><h2>Microsoft sign-in codes</h2></div><button id="closeMsaModal" class="ghost" type="button" aria-label="Close sign-in window">✕</button></div><p class="muted">Enter the code on Microsoft's website and sign in with the account you want to use.</p><div id="msaList"></div></section>
   <section class="panel" id="connectionPanel"><div class="section-heading"><div><p class="eyebrow">CONNECTION</p><h2>Server & bots</h2></div><span class="step">01</span></div>
     <div class="form-grid two"><label>Server address<input id="host" placeholder="play.example.net:25565" autocomplete="off" spellcheck="false"></label><div class="field-note"><span class="hint">Authentication</span><b>Microsoft account</b></div></div>
-    <div class="section-heading"><div><h3>Choose bots to connect</h3><p class="hint">Add an account below, enter the server address, select the account, and click Connect to trigger Microsoft sign-in.</p></div></div>
+    <div class="section-heading"><div><h3>Choose bots to connect</h3><p class="hint">Enter the server address first, then click Add Microsoft account to start Microsoft sign-in. The bot will also begin connecting to that server.</p></div></div>
     <div class="toolbar"><input id="connectBotSearch" class="compact" placeholder="Search bots…" aria-label="Search bots to connect"><button id="selectAllBots" class="ghost" type="button">Select all</button><button id="deselectAllBots" class="ghost" type="button">Deselect all</button></div>
     <div id="connectBotChoices" class="connect-bot-choices"><p class="muted">No saved bot accounts yet.</p></div>
     <div class="toolbar"><span class="spacer"></span><button id="btnConnect" class="primary">Connect selected</button><button id="btnDisconnect" class="danger-ghost">Disconnect selected</button></div>
@@ -60,4 +60,4 @@
     </form>
     <p id="accountMessage" class="hint" role="status"></p>
   </section>
-</main><div id="toast" class="toast" hidden></div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=msa-fix-4"></script><script src="/accounts.js"></script></body></html>
+</main><div id="toast" class="toast" hidden></div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=msa-fix-5"></script><script src="/accounts.js"></script></body></html>
