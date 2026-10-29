@@ -73,7 +73,8 @@ function fillForms(s) {
   if (hostInput && document.activeElement !== hostInput && !hostInput.value.trim()) {
     hostInput.value = s.connection.host ? s.connection.host + (s.connection.port ? ':' + s.connection.port : '') : '';
   }
-  $('names').value = (s.names || []).join('\n');
+  // The old bulk-names input was removed; accounts are now added and selected individually.
+  if ($('names')) $('names').value = (s.names || []).join('\n');
   $('version').textContent = s.version || 'auto';
   if ($('mcVersion')) $('mcVersion').value = s.version || 'auto';
   if (s.area) {
