@@ -128,7 +128,13 @@ const actions = {
   remove_bot: (p) => manager.removeBot(p && p.name),
 };
 
-const owned = (name, user) => isAdmin(user) || (Array.isArray(user && user.botNames) && user.botNames.includes(name));
+const owned = (name, user) => {
+  if (isAdmin(user)) return true;
+  const assigned = Array.isArray(user && user.botNames) ? new Set(user.botNames.map((n) => String(n).toLowerCase())) : new Set();
+  const worker = manager.workers.get(name);
+  const profileName = worker && worker.accountName || manager.accountNames[name];
+  return assigned.has(String(name).toLowerCase()) || (!!profileName && assigned.has(String(profileName).toLowerCase()));
+};
 const snapshotFor = (user) => { const snap=manager.snapshot(); if (isAdmin(user)) return snap; snap.bots=snap.bots.filter(b=>owned(b.name,user)); snap.names=snap.bots.map(b=>b.name); return {...snap,connection:null,area:null,settings:{},mining:false}; };
 io.on('connection', (socket) => {
   const originalUser = () => auth.getUsers().find(u => u.id === socketUserById.get(socket.id));
@@ -156,7 +162,11 @@ io.on('connection', (socket) => {
     }
     if (type === 'stop' && !isAdmin(user)) {
       try {
-        manager.stopBots(user && user.botNames);
+        const assigned = Array.isArray(user && user.botNames) ? new Set(user.botNames.map((n) => String(n).toLowerCase())) : new Set();
+        const internalNames = [...manager.workers.values()]
+          .filter((w) => assigned.has(String(w.name).toLowerCase()) || assigned.has(String(w.accountName || manager.accountNames[w.name] || '').toLowerCase()))
+          .map((w) => w.name);
+        manager.stopBots(internalNames);
         reply({ok:true});
       } catch (e) {
         reply({ok:false,error:e.message});
@@ -181,7 +191,7 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => { socketUserById.delete(socket.id); viewAsBySocket.delete(socket.id); });
 });
 
-manager.on('log', (entry) => { for (const socket of io.sockets.sockets.values()) { const original=auth.getUsers().find(x=>x.id===socketUserById.get(socket.id)); const u=viewAsBySocket.has(socket.id)?auth.getUsers().find(x=>x.id===viewAsBySocket.get(socket.id)):original; if (isAdmin(original) || (u && u.botNames.includes(entry.source))) socket.emit('log', entry); } });
+manager.on('log', (entry) => { for (const socket of io.sockets.sockets.values()) { const original=auth.getUsers().find(x=>x.id===socketUserById.get(socket.id)); const u=viewAsBySocket.has(socket.id)?auth.getUsers().find(x=>x.id===viewAsBySocket.get(socket.id)):original; if (isAdmin(original) || owned(entry.source, u)) socket.emit('log', entry); } });
 manager.on('change', () => { for (const socket of io.sockets.sockets.values()) { const original=auth.getUsers().find(x=>x.id===socketUserById.get(socket.id)); const u=viewAsBySocket.has(socket.id)?auth.getUsers().find(x=>x.id===viewAsBySocket.get(socket.id)):original; socket.emit('state', snapshotFor(u)); } });
 setInterval(() => { if (io.engine.clientsCount) for (const socket of io.sockets.sockets.values()) { const original=auth.getUsers().find(x=>x.id===socketUserById.get(socket.id)); const u=viewAsBySocket.has(socket.id)?auth.getUsers().find(x=>x.id===viewAsBySocket.get(socket.id)):original; socket.emit('state', snapshotFor(u)); } }, 1000).unref();
 
