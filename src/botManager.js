@@ -222,7 +222,7 @@ class BotManager extends EventEmitter {
             return;
           }
           this.setMsa(name, data);
-          this.log(name, 'Microsoft device code received; enter it using the sign-in link shown in the dashboard.', 'info');
+          this.log(name, `Microsoft device code received: ${data.user_code}; sign in at ${data.verification_uri || 'https://www.microsoft.com/link'}.`, 'info');
         } catch (error) {
           this.log(name, `Microsoft device-code callback failed: ${error.message}`, 'error');
         }
