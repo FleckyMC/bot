@@ -114,6 +114,7 @@ io.use((socket, next) => {
 
 const actions = {
   connect_bots: (p) => manager.connect(p || {}),
+  connect_selected: (p) => manager.connectSelected(p || {}),
   disconnect_bots: () => manager.disconnect(),
   set_area: (p) => manager.setArea(p && p.p1, p && p.p2),
   set_settings: (p) => manager.setSettings(p || {}),
@@ -164,7 +165,7 @@ io.on('connection', (socket) => {
     const fn = Object.prototype.hasOwnProperty.call(actions, type) ? actions[type] : null;
     if (!fn) return reply({ ok: false, error: 'Unknown action' });
     if (!isAdmin(user)) {
-      if (['connect_bots','disconnect_bots','set_area','set_settings','set_version','start','add_bot','remove_bot'].includes(type)) return reply({ok:false,error:'Only the admin can change global bot settings or add/remove bots.'});
+      if (['connect_bots','connect_selected','disconnect_bots','set_area','set_settings','set_version','start','add_bot','remove_bot'].includes(type)) return reply({ok:false,error:'Only the admin can change global bot settings or add/remove bots.'});
       if (type === 'chat' && payload && payload.target !== 'all' && !owned(payload.target,user)) return reply({ok:false,error:'Bot not assigned to this account.'});
       if (type === 'chat' && payload && payload.target === 'all') return reply({ok:false,error:'Select an assigned bot.'});
       if (type === 'bot_profile' && !owned(payload && payload.name,user)) return reply({ok:false,error:'Bot not assigned to this account.'});
