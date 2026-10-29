@@ -67,6 +67,7 @@ class BotWorker {
     if (this.bot) return;
     const m = this.m;
     const c = m.connection;
+    this.serverAddress = { host: c.host, port: c.port || 25565 };
     this.wantConnected = true;
     this.setStatus('connecting', 'Verbinde...');
 
@@ -813,6 +814,7 @@ class BotWorker {
       newAccountSignIn: !!this.newAccountSignIn,
       status: this.status,
       detail: this.detail,
+      serverAddress: ready ? (this.serverAddress || null) : null,
       mined: this.stats.mined,
       fishCaught: this.stats.fishCaught || 0,
       trades: this.stats.trades || 0,
