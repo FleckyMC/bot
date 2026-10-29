@@ -202,7 +202,7 @@ function render(s) {
       });
       const info = el('span', 'connect-bot-info');
       const note = botNote(b.name).trim();
-      info.append(el('b', '', displayBotName(b) + (note ? ' · ' + note : '')), el('small', '', b.pos ? `Online · ${state.connection?.host || ''}${state.connection?.port && state.connection.port !== 25565 ? ':' + state.connection.port : ''}` : 'Offline'));
+      info.append(el('b', '', displayBotName(b) + (note ? ' · ' + note : '')), el('small', '', b.pos ? `Online · ${b.serverAddress?.host || ''}${b.serverAddress?.port && b.serverAddress.port !== 25565 ? ':' + b.serverAddress.port : ''}` : 'Offline'));
       label.append(checkbox, info);
       choices.append(label);
     }
@@ -226,7 +226,7 @@ function render(s) {
     const card = el('div', 'bot');
     const details = el('details', 'bot-details');
     const top = el('summary', 'bot-summary');
-    const server = b.pos ? `${s.connection?.host || 'Server'}${s.connection?.port && s.connection.port !== 25565 ? ':' + s.connection.port : ''}` : '';
+    const server = b.pos ? `${b.serverAddress?.host || 'Server'}${b.serverAddress?.port && b.serverAddress.port !== 25565 ? ':' + b.serverAddress.port : ''}` : '';
     const cardOnline = !!b.pos;
     top.append(el('span', 'name', displayBotName(b)), el('span', 'server-name', server), el('span', 'chip ' + (cardOnline ? 'ok' : 'err'), cardOnline ? 'Online' : 'Offline'));
     details.open = expandedBotCards.has(b.name);
