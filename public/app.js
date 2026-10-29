@@ -3,6 +3,8 @@ const $ = (id) => document.getElementById(id);
 const socket = io();
 let state = null;
 let formsFilled = false;
+let msaModalDismissed = false;
+let lastMsaSignature = '';
 const selectedConnectBots = new Set();
 const inventoryShown = new Set();
 let lastScroll = { x: 0, y: 0 };
@@ -110,7 +112,9 @@ function render(s) {
 
   // Microsoft-Codes
   const msa = s.bots.filter((b) => b.msa);
-  $('msaCard').hidden = !msa.length;
+  const msaSignature = msa.map((b) => `${b.name}:${b.msa.code}`).join('|');
+  if (msaSignature !== lastMsaSignature) { msaModalDismissed = false; lastMsaSignature = msaSignature; }
+  $('msaCard').hidden = !msa.length || msaModalDismissed;
   const list = $('msaList');
   list.replaceChildren();
   for (const b of msa) {
@@ -351,6 +355,8 @@ $('deselectAllBots')?.addEventListener('click', () => {
   if (state) render(state);
 });
 $('btnDisconnect').onclick = () => { if (confirm('All bots trennen?')) act('disconnect_bots', {}, 'Disconnected'); };
+$('closeMsaModal').onclick = () => { msaModalDismissed = true; $('msaCard').hidden = true; };
+
 $('btnAddBot').onclick = () => {
   act('add_bot', { auth: 'microsoft' }, 'Starting Microsoft sign-in…');
 };
