@@ -34,6 +34,17 @@ class BotManager extends EventEmitter {
     this.area = cfg.area;
     this.settings = cfg.settings;
     this.workers = new Map();
+    // Restore Microsoft accounts with known Minecraft profiles after a server restart.
+    for (const [key, profileName] of Object.entries(this.accountNames)) {
+      if (!key || !profileName) continue;
+      const w = new BotWorker(this, key);
+      w.accountName = profileName;
+      w.authMethod = 'microsoft';
+      w.wantConnected = false;
+      w.status = 'offline';
+      w.detail = 'Saved Microsoft account. Select it to connect to the Minecraft server.';
+      this.workers.set(key, w);
+    }
     this.mining = false;
     this.msa = new Map();
     this.logs = [];
@@ -214,6 +225,24 @@ class BotManager extends EventEmitter {
       delay += 1500;
     }
     this.log('system', `Connecting ${selected.length} selected bot(s) to ${host}${port ? ':' + port : ''}`, 'info');
+    this.touch();
+  }
+
+  disconnectSelected(names) {
+    const selected = [...new Set((Array.isArray(names) ? names : []).map(String))];
+    if (!selected.length) throw new Error('Select at least one bot to disconnect.');
+    let disconnected = 0;
+    for (const name of selected) {
+      const w = this.workers.get(name);
+      if (!w) continue;
+      w.wantConnected = false;
+      w.disconnect();
+      w.status = 'offline';
+      w.detail = 'Disconnected. Select this bot to connect again.';
+      disconnected++;
+    }
+    if (!disconnected) throw new Error('No selected bots were found.');
+    this.log('system', `Disconnected ${disconnected} selected bot(s)`, 'info');
     this.touch();
   }
 
