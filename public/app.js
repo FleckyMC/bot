@@ -402,7 +402,13 @@ $('btnDisconnect').onclick = () => { const names = [...selectedConnectBots]; if 
 $('closeMsaModal').onclick = () => { msaModalDismissed = true; $('msaCard').hidden = true; };
 
 $('btnAddBot').onclick = () => {
-  act('add_bot', { auth: 'microsoft' }, 'Microsoft account added. Enter the server address, select the account, then connect to start sign-in.');
+  const host = $('host').value.trim();
+  if (!host) {
+    toast('Enter the Minecraft server address first.', true);
+    $('host').focus();
+    return;
+  }
+  act('add_bot', { auth: 'microsoft', host }, 'Starting Microsoft sign-in…');
 };
 
 $('btnArea').onclick = () => {
