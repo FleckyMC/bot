@@ -184,7 +184,12 @@ function render(s) {
   // Ziel-Auswahl fuer Befehle
   const sel = $('chatTarget');
   const want = ['all', ...s.bots.map((b) => b.name)];
-  if (sel.options.length !== want.length || [...sel.options].some((o, i) => o.value !== want[i])) {
+  if (sel.options.length !== want.length || [...sel.options].some((o, i) => {
+    const bot = s.bots.find((b) => b.name === want[i]);
+    const note = bot ? botNote(bot.name).trim() : '';
+    const expectedLabel = want[i] === 'all' ? 'All bots' : `${displayBotName(bot || { name: want[i] })}${note ? ' — ' + note : ''}`;
+    return o.value !== want[i] || o.textContent !== expectedLabel;
+  })) {
     const cur = sel.value;
     sel.replaceChildren();
     for (const v of want) {
