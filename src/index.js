@@ -115,6 +115,7 @@ io.use((socket, next) => {
 const actions = {
   connect_bots: (p) => manager.connect(p || {}),
   connect_selected: (p) => manager.connectSelected(p || {}),
+  disconnect_selected: (p) => manager.disconnectSelected(p && p.names),
   disconnect_bots: () => manager.disconnect(),
   set_area: (p) => manager.setArea(p && p.p1, p && p.p2),
   set_settings: (p) => manager.setSettings(p || {}),
