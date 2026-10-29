@@ -3,6 +3,7 @@ const $ = (id) => document.getElementById(id);
 const socket = io();
 let state = null;
 let formsFilled = false;
+const selectedConnectBots = new Set();
 const inventoryShown = new Set();
 let lastScroll = { x: 0, y: 0 };
 const ITEM_ICONS = { fishing_rod: '🎣', experience_bottle: '🧪', diamond: '💎', emerald: '🟩', iron_ingot: '🔩', gold_ingot: '🪙', coal: '⚫', cooked_cod: '🐟', cod: '🐟', salmon: '🐠', enchanted_book: '📘', bow: '🏹', arrow: '➶', chest: '📦', barrel: '🛢️', bread: '🍞', apple: '🍎', pickaxe: '⛏️' };
@@ -141,6 +142,30 @@ function render(s) {
     sel.replaceChildren();
     for (const v of want) { const o = el('option', '', v === 'all' ? 'All bots' : v); o.value = v; sel.append(o); }
     sel.value = want.includes(cur) ? cur : 'all';
+  }
+
+  // Searchable multi-select for server connection
+  const choices = $('connectBotChoices');
+  if (choices) {
+    const search = ($('connectBotSearch')?.value || '').trim().toLowerCase();
+    choices.replaceChildren();
+    const bots = s.bots.filter((b) => !search || String(b.accountName || b.name).toLowerCase().includes(search) || b.name.toLowerCase().includes(search));
+    if (!bots.length) choices.append(el('p', 'muted', s.bots.length ? 'No bots match your search.' : 'No saved bot accounts yet.'));
+    for (const b of bots) {
+      const label = el('label', 'connect-bot-choice');
+      const checkbox = el('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = selectedConnectBots.has(b.name);
+      checkbox.disabled = !!b.pos;
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) selectedConnectBots.add(b.name);
+        else selectedConnectBots.delete(b.name);
+      });
+      const info = el('span', 'connect-bot-info');
+      info.append(el('b', '', b.accountName || b.name), el('small', '', b.pos ? 'Connected to server' : (b.status === 'error' ? (b.detail || 'Authentication error') : (b.detail || b.status))));
+      label.append(checkbox, info);
+      choices.append(label);
+    }
   }
 
   // Bot-Karten
@@ -294,11 +319,20 @@ $('btnVersion').onclick = () => act('set_version', { version: $('mcVersion').val
 $('btnStop').onclick = () => act('stop', {}, 'Stopped');
 $('btnStartMining')?.addEventListener('click', () => act('start', {}, 'Mining gestartet'));
 
-$('btnConnect').onclick = () => act('connect_bots', {
-  host: $('host').value,
-  auth: 'microsoft',
-  names: $('names').value.split(/\r?\n/),
-}, 'Connecting…');
+$('btnConnect').onclick = () => {
+  const names = [...selectedConnectBots];
+  if (!names.length) return toast('Select at least one bot first.', true);
+  act('connect_selected', { host: $('host').value, names }, 'Connecting selected bots…');
+};
+$('connectBotSearch')?.addEventListener('input', () => { if (state) render(state); });
+$('selectAllBots')?.addEventListener('click', () => {
+  if (state) state.bots.forEach((b) => { if (!b.pos) selectedConnectBots.add(b.name); });
+  if (state) render(state);
+});
+$('deselectAllBots')?.addEventListener('click', () => {
+  selectedConnectBots.clear();
+  if (state) render(state);
+});
 $('btnDisconnect').onclick = () => { if (confirm('All bots trennen?')) act('disconnect_bots', {}, 'Disconnected'); };
 $('btnAddBot').onclick = () => {
   act('add_bot', { auth: 'microsoft' }, 'Starting Microsoft sign-in…');
