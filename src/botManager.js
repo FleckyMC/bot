@@ -4,6 +4,7 @@ const path = require('path');
 const config = require('./config');
 const planner = require('./planner');
 const { BotWorker } = require('./botWorker');
+const { Authflow, Titles } = require('prismarine-auth');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const NAME_RE = /^[A-Za-z0-9_]{3,16}$/;
@@ -148,19 +149,61 @@ class BotManager extends EventEmitter {
   }
 
   addBot() {
-    if (!this.connection.host) throw new Error('Please enter and save the server address first.');
     let index = 1;
     while (this.workers.has(`MicrosoftAccount${index}`)) index++;
     const name = `MicrosoftAccount${index}`;
-    const auth = 'microsoft';
+    const safe = name.replace(/[^A-Za-z0-9_.@-]/g, '_');
     const w = new BotWorker(this, name);
-    w.authMethod = auth;
-    w.wantConnected = true;
+    w.authMethod = 'microsoft';
+    w.wantConnected = false;
+    w.status = 'connecting';
+    w.detail = 'Starting Microsoft sign-in';
     this.workers.set(name, w);
     this.names = [...new Set([...this.names, name])];
     this.save();
-    this.log('system', 'Starting Microsoft sign-in for a new bot account', 'info');
-    w.connect();
+    this.log('system', 'Starting Microsoft sign-in (server connection will be a separate step)', 'info');
+    this.touch();
+    const flow = new Authflow(name, path.join(this.dataDir, 'profiles', safe), {
+      authTitle: Titles.MinecraftJava,
+      deviceType: 'Win32',
+      flow: 'live',
+    }, (data) => this.setMsa(name, data));
+    Promise.resolve(flow.getMinecraftJavaToken({ fetchProfile: true })).then((result) => {
+      if (this.workers.get(name) !== w) return;
+      this.clearMsa(name);
+      w.accountName = result && result.profile && result.profile.name || null;
+      w.status = 'offline';
+      w.detail = 'Microsoft account authenticated. Select this bot and connect to the Minecraft server when ready.';
+      this.log(name, 'Microsoft account authenticated. Bot is not connected to the Minecraft server.', 'info');
+      this.touch();
+    }).catch((error) => {
+      if (this.workers.get(name) !== w) return;
+      this.clearMsa(name);
+      w.status = 'error';
+      w.detail = error && error.message ? error.message : 'Microsoft authentication failed';
+      this.log(name, `Microsoft authentication failed: ${w.detail}`, 'error');
+      this.touch();
+    });
+  }
+
+  connectSelected(p) {
+    const { host, port } = parseHost(p.host, p.port);
+    const selected = [...new Set((Array.isArray(p.names) ? p.names : []).map(String))];
+    if (!selected.length) throw new Error('Select at least one bot to connect.');
+    this.connection = { host, port, auth: 'microsoft' };
+    this.save();
+    let delay = 0;
+    for (const name of selected) {
+      const w = this.workers.get(name);
+      if (!w) continue;
+      if (w.bot) continue;
+      w.wantConnected = true;
+      setTimeout(() => {
+        if (this.workers.get(name) === w && w.wantConnected) w.connect();
+      }, delay);
+      delay += 1500;
+    }
+    this.log('system', `Connecting ${selected.length} selected bot(s) to ${host}${port ? ':' + port : ''}`, 'info');
     this.touch();
   }
 
