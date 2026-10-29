@@ -7,6 +7,7 @@ const DEFAULTS = {
   version: 'auto',
   names: [],
   accountNames: {},
+  accountProfiles: {},
   area: null, // { p1:{x,y,z}, p2:{x,y,z} }
   settings: {
     durabilityThreshold: 300, // unter diesem Wert wird repariert
@@ -35,6 +36,7 @@ function load(file) {
       version: raw.version || DEFAULTS.version,
       names: Array.isArray(raw.names) ? raw.names : [],
       accountNames: raw.accountNames && typeof raw.accountNames === 'object' && !Array.isArray(raw.accountNames) ? raw.accountNames : {},
+      accountProfiles: raw.accountProfiles && typeof raw.accountProfiles === 'object' && !Array.isArray(raw.accountProfiles) ? raw.accountProfiles : {},
       area: raw.area || null,
       settings: { ...DEFAULTS.settings, ...(raw.settings || {}) },
     };
