@@ -204,12 +204,25 @@ class BotManager extends EventEmitter {
     this.save();
     this.log('system', 'Starting Microsoft sign-in (server connection will be a separate step)', 'info');
     this.touch();
-    const flow = new Authflow(name, profileDir, {
-      authTitle: Titles.MinecraftJava,
-      deviceType: 'Win32',
-      flow: 'live',
-    }, (data) => this.setMsa(name, data));
-    Promise.resolve(flow.getMinecraftJavaToken({ fetchProfile: true })).then((result) => {
+    // Ensure the token-cache directory exists before prismarine-auth starts.
+    // Keep constructor errors inside the same promise chain so the dashboard shows them
+    // instead of leaving the account stuck on "Starting Microsoft sign-in".
+    fs.mkdirSync(profileDir, { recursive: true });
+    Promise.resolve().then(() => {
+      const flow = new Authflow(name, profileDir, {
+        authTitle: Titles.MinecraftJava,
+        deviceType: 'Win32',
+        flow: 'live',
+      }, (data) => {
+        try {
+          if (!data || !data.user_code) throw new Error('Microsoft returned no device sign-in code.');
+          this.setMsa(name, data);
+        } catch (error) {
+          this.log(name, `Microsoft device-code error: ${error.message}`, 'error');
+        }
+      });
+      return flow.getMinecraftJavaToken({ fetchProfile: true });
+    }).then((result) => {
       if (this.workers.get(name) !== w) return;
       // Keep the device-code card visible after authentication so the user can
       // see which sign-in completed; a new account gets its own new code.
