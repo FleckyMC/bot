@@ -155,7 +155,11 @@ class BotManager extends EventEmitter {
     while (this.workers.has(`MicrosoftAccount${index}`)) index++;
     const name = `MicrosoftAccount${index}`;
     const safe = name.replace(/[^A-Za-z0-9_.@-]/g, '_');
+    // Every add-account attempt gets a fresh Microsoft token cache, otherwise
+    // prismarine-auth can silently reuse the previously signed-in Microsoft account.
+    const profileDir = path.join(this.dataDir, 'profiles', `${safe}-${Date.now()}`);
     const w = new BotWorker(this, name);
+    w.profileDir = profileDir;
     w.authMethod = 'microsoft';
     w.wantConnected = false;
     w.status = 'connecting';
@@ -165,7 +169,7 @@ class BotManager extends EventEmitter {
     this.save();
     this.log('system', 'Starting Microsoft sign-in (server connection will be a separate step)', 'info');
     this.touch();
-    const flow = new Authflow(name, path.join(this.dataDir, 'profiles', safe), {
+    const flow = new Authflow(name, profileDir, {
       authTitle: Titles.MinecraftJava,
       deviceType: 'Win32',
       flow: 'live',
