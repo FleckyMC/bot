@@ -119,6 +119,17 @@ function render(s) {
     const logged = msaFromLogs.get(b.name);
     if (b.msa) msaByName.set(b.name, b);
     else if (logged) msaByName.set(b.name, { ...b, msa: logged });
+    else if (b.authMethod === 'microsoft' && (
+      (b.status === 'connecting' && /Microsoft sign-in/i.test(b.detail || '')) ||
+      (b.status === 'error' && /Microsoft sign-in did not return a device code/i.test(b.detail || ''))
+    )) {
+      // Show the sign-in panel immediately, even while prismarine-auth is still
+      // waiting for Microsoft's device-code response.
+      msaByName.set(b.name, {
+        ...b,
+        msa: { code: '', url: 'https://www.microsoft.com/link', pending: true },
+      });
+    }
   }
   // A log event can arrive just before the matching bot appears in a state snapshot.
   // Render the real device code from that event anyway instead of hiding the sign-in panel.
@@ -126,40 +137,45 @@ function render(s) {
     if (!msaByName.has(name)) msaByName.set(name, { name, accountName: name, msa: logged });
   }
   const msa = [...msaByName.values()];
-  const msaSignature = msa.map((b) => `${b.name}:${b.msa.code}`).join('|');
+  const msaSignature = msa.map((b) => `${b.name}:${b.msa.code || (b.msa.pending ? 'pending' : '')}`).join('|');
   if (msaSignature !== lastMsaSignature) { msaModalDismissed = false; lastMsaSignature = msaSignature; }
   $('msaCard').hidden = !msa.length || msaModalDismissed;
   const list = $('msaList');
   list.replaceChildren();
   for (const b of msa) {
     const row = el('div', 'msa');
-    row.append(el('b', '', b.accountName || 'Microsoft account'), el('code', '', b.msa.code));
-    const copy = el('button', 'ghost copy-code', '⧉');
-    copy.type = 'button';
-    copy.title = 'Copy sign-in code';
-    copy.setAttribute('aria-label', 'Copy sign-in code');
-    copy.onclick = async () => {
-      try {
-        if (navigator.clipboard && window.isSecureContext) {
-          await navigator.clipboard.writeText(b.msa.code);
-        } else {
-          const input = document.createElement('textarea');
-          input.value = b.msa.code;
-          input.setAttribute('readonly', '');
-          input.style.position = 'fixed';
-          input.style.opacity = '0';
-          document.body.append(input);
-          input.select();
-          const copied = document.execCommand('copy');
-          input.remove();
-          if (!copied) throw new Error('copy failed');
+    row.append(el('b', '', b.accountName || 'Microsoft account'));
+    if (b.msa.code) {
+      row.append(el('code', '', b.msa.code));
+      const copy = el('button', 'ghost copy-code', '⧉');
+      copy.type = 'button';
+      copy.title = 'Copy sign-in code';
+      copy.setAttribute('aria-label', 'Copy sign-in code');
+      copy.onclick = async () => {
+        try {
+          if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(b.msa.code);
+          } else {
+            const input = document.createElement('textarea');
+            input.value = b.msa.code;
+            input.setAttribute('readonly', '');
+            input.style.position = 'fixed';
+            input.style.opacity = '0';
+            document.body.append(input);
+            input.select();
+            const copied = document.execCommand('copy');
+            input.remove();
+            if (!copied) throw new Error('copy failed');
+          }
+          toast('Sign-in code copied');
+        } catch {
+          toast('Copy failed. Please select the code and copy it manually.', true);
         }
-        toast('Sign-in code copied');
-      } catch {
-        toast('Copy failed. Please select the code and copy it manually.', true);
-      }
-    };
-    row.append(copy);
+      };
+      row.append(copy);
+    } else {
+      row.append(el('span', 'muted', b.detail || 'Microsoft-Gerätecode wird angefordert …'));
+    }
     const a = el('a', 'primary msa-open', 'Open Microsoft sign-in');
     try {
       const u = new URL(b.msa.url || 'https://www.microsoft.com/link');
