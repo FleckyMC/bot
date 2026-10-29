@@ -30,15 +30,16 @@ class BotManager extends EventEmitter {
     const cfg = config.load(this.file);
     this.connection = cfg.connection;
     this.version = version && version !== 'auto' ? version : (cfg.version || 'auto');
-    this.names = Array.isArray(cfg.names) ? [...new Set(cfg.names.filter((n) => typeof n === 'string' && n.trim()))] : [];
     this.accountNames = cfg.accountNames || {};
+    // Only fully authenticated Minecraft profiles are persisted as selectable bots.
+    this.names = Array.isArray(cfg.names) ? [...new Set(cfg.names.filter((n) => typeof n === 'string' && n.trim() && this.accountNames[n]))] : [];
     this.accountProfiles = cfg.accountProfiles || {};
     this.area = cfg.area;
     this.settings = cfg.settings;
     this.workers = new Map();
     // Restore every saved bot entry, including accounts whose device login was
     // started but not completed before a restart. Older config files only have names.
-    const savedNames = [...new Set([...this.names, ...Object.keys(this.accountNames)])];
+    const savedNames = [...new Set(Object.keys(this.accountNames).filter((n) => this.accountNames[n]))];
     const profilesRoot = path.join(this.dataDir, 'profiles');
     for (const key of savedNames) {
       if (!key) continue;
