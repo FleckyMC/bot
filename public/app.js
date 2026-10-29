@@ -67,7 +67,12 @@ const STATUS = {
 // ------------------------------------------------------------ Formulare befuellen (einmalig)
 
 function fillForms(s) {
-  $('host').value = s.connection.host ? s.connection.host + (s.connection.port ? ':' + s.connection.port : '') : '';
+  // Never replace a server address while the user is editing it or has typed a draft.
+  // Socket state updates can arrive while the initial dashboard snapshot is still loading.
+  const hostInput = $('host');
+  if (hostInput && document.activeElement !== hostInput && !hostInput.value.trim()) {
+    hostInput.value = s.connection.host ? s.connection.host + (s.connection.port ? ':' + s.connection.port : '') : '';
+  }
   $('names').value = (s.names || []).join('\n');
   $('version').textContent = s.version || 'auto';
   if ($('mcVersion')) $('mcVersion').value = s.version || 'auto';
