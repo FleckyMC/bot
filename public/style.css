@@ -18,3 +18,10 @@ button{display:inline-flex;justify-content:center;align-items:center;gap:7px;pad
 .connect-bot-info{display:grid;gap:2px;min-width:0}
 .connect-bot-info b{overflow-wrap:anywhere}
 .connect-bot-info small{font-size:10px;color:var(--muted);overflow-wrap:anywhere}
+
+/* Microsoft device-code popup */
+#msaCard.msa-modal-panel{position:fixed;z-index:1000;left:50%;top:50%;transform:translate(-50%,-50%);width:min(620px,calc(100vw - 28px));max-height:calc(100vh - 28px);overflow:auto;margin:0;padding:24px;background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:0 25px 100px rgba(0,0,0,.72)}
+body:has(#msaCard:not([hidden])):after{content:"";position:fixed;inset:0;z-index:999;background:rgba(0,0,0,.62);backdrop-filter:blur(3px)}
+#msaCard .section-heading{display:flex;align-items:center;justify-content:space-between;gap:14px}
+#msaCard .msa code{font-size:clamp(20px,5vw,30px);letter-spacing:.16em;padding:10px 14px;user-select:all}
+#msaCard .msa{gap:10px}
