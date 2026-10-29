@@ -314,9 +314,9 @@ function render(s) {
 const logBox = $('log');
 $('clearLog')?.addEventListener('click', () => { logBox.replaceChildren(); toast('Activity log cleared'); });
 function addLog(e) {
-  const codeMatch = String(e.text || '').match(/Microsoft-Login:\\s*Code\\s+([A-Z0-9-]+)\\s+auf\\s+(https:\\/\\/\\S+|[\\w.-]+\\/\\S*)/i);
+  const codeMatch = String(e.text || '').match(/Microsoft-Login:\s*Code\s+(\S+)\s+auf\s+(\S+)/i);
   if (codeMatch && e.source) {
-    msaFromLogs.set(e.source, { code: codeMatch[1], url: /^https:\\/\\//i.test(codeMatch[2]) ? codeMatch[2] : 'https://www.microsoft.com/link' });
+    msaFromLogs.set(e.source, { code: codeMatch[1], url: /^https:\/\//i.test(codeMatch[2]) ? codeMatch[2] : 'https://www.microsoft.com/link' });
     if (state) render(state);
   }
   const stick = logBox.scrollTop + logBox.clientHeight >= logBox.scrollHeight - 24;
