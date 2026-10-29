@@ -1,6 +1,7 @@
 'use strict';
 const EventEmitter = require('events');
 const path = require('path');
+const fs = require('fs');
 const config = require('./config');
 const planner = require('./planner');
 const { BotWorker } = require('./botWorker');
@@ -29,20 +30,42 @@ class BotManager extends EventEmitter {
     const cfg = config.load(this.file);
     this.connection = cfg.connection;
     this.version = version && version !== 'auto' ? version : (cfg.version || 'auto');
-    this.names = cfg.names;
+    this.names = Array.isArray(cfg.names) ? [...new Set(cfg.names.filter((n) => typeof n === 'string' && n.trim()))] : [];
     this.accountNames = cfg.accountNames || {};
+    this.accountProfiles = cfg.accountProfiles || {};
     this.area = cfg.area;
     this.settings = cfg.settings;
     this.workers = new Map();
-    // Restore Microsoft accounts with known Minecraft profiles after a server restart.
-    for (const [key, profileName] of Object.entries(this.accountNames)) {
-      if (!key || !profileName) continue;
+    // Restore every saved bot entry, including accounts whose device login was
+    // started but not completed before a restart. Older config files only have names.
+    const savedNames = [...new Set([...this.names, ...Object.keys(this.accountNames)])];
+    const profilesRoot = path.join(this.dataDir, 'profiles');
+    for (const key of savedNames) {
+      if (!key) continue;
       const w = new BotWorker(this, key);
-      w.accountName = profileName;
+      const profileName = this.accountNames[key];
+      if (profileName) w.accountName = profileName;
       w.authMethod = 'microsoft';
       w.wantConnected = false;
-      w.status = 'offline';
-      w.detail = 'Saved Microsoft account. Select it to connect to the Minecraft server.';
+      w.status = profileName ? 'offline' : 'error';
+      w.detail = profileName
+        ? 'Saved Microsoft account. Select it to connect to the Minecraft server.'
+        : 'Saved account entry. Microsoft sign-in may need to be completed again.';
+      const safe = String(key).replace(/[^A-Za-z0-9_.@-]/g, '_');
+      let profileDir = this.accountProfiles[key];
+      if (!profileDir) {
+        // Migrate older timestamped profile folders created before accountProfiles
+        // was persisted. Prefer the newest matching folder if one exists.
+        try {
+          const candidates = fs.readdirSync(profilesRoot, { withFileTypes: true })
+            .filter((entry) => entry.isDirectory() && (entry.name === safe || entry.name.startsWith(safe + '-')))
+            .map((entry) => path.join(profilesRoot, entry.name))
+            .sort()
+            .reverse();
+          if (candidates.length) profileDir = candidates[0];
+        } catch { /* profiles directory may not exist yet */ }
+      }
+      w.profileDir = profileDir || path.join(profilesRoot, safe);
       this.workers.set(key, w);
     }
     this.mining = false;
@@ -56,7 +79,7 @@ class BotManager extends EventEmitter {
   save() {
     try {
       config.save(this.file, {
-        connection: this.connection, version: this.version, names: this.names, accountNames: this.accountNames, area: this.area, settings: this.settings,
+        connection: this.connection, version: this.version, names: this.names, accountNames: this.accountNames, accountProfiles: this.accountProfiles, area: this.area, settings: this.settings,
       });
     } catch (e) { this.log('system', `Konfiguration konnte nicht gespeichert werden: ${e.message}`, 'warn'); }
   }
@@ -171,6 +194,7 @@ class BotManager extends EventEmitter {
     const profileDir = path.join(this.dataDir, 'profiles', `${safe}-${Date.now()}`);
     const w = new BotWorker(this, name);
     w.profileDir = profileDir;
+    this.accountProfiles[name] = profileDir;
     w.authMethod = 'microsoft';
     w.wantConnected = false;
     w.status = 'connecting';
@@ -253,6 +277,8 @@ class BotManager extends EventEmitter {
     this.workers.delete(w.name);
     this.names = this.names.filter(n => n !== w.name);
     this.msa.delete(w.name);
+    delete this.accountNames[w.name];
+    delete this.accountProfiles[w.name];
     this.save();
     this.log('system', `Bot ${w.name} entfernt`, 'info');
     this.touch();
