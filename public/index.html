@@ -35,7 +35,7 @@
     <div class="form-grid three"><label>Fishing rod threshold<input id="fishThreshold" type="number" min="1" max="64" value="20"><span class="hint">Remaining durability</span></label><label class="check toggle-label"><input id="fishMending" type="checkbox" checked> Repair Mending with XP bottles</label><label class="check toggle-label"><input id="fishDeposit" type="checkbox" checked> Deposit catch when inventory is full</label></div>
     <p class="hint">Configure the storage chest above. XP bottles repair the rod only if the bot actually collects the XP. Without Mending, a replacement rod is sought when durability is low.</p>
   </section>
-  <section class="panel wide" id="botsPanel"><div class="section-heading"><div><p class="eyebrow">LIVE STATUS</p><h2>My Bots</h2></div><span class="hint">Live updates</span></div><div class="toolbar"><input id="botSearch" class="compact" placeholder="Search bots…" aria-label="Search bots"><select id="botStatusFilter" aria-label="Filter bots"><option value="all">All bots</option><option value="online">Online</option><option value="offline">Offline</option></select></div><div id="bots" class="bots"><div class="empty-state">No bots connected yet. Connect a bot above to manage it here.</div></div></section>
+  <section class="panel wide" id="botsPanel"><div class="section-heading"><div><p class="eyebrow">LIVE STATUS</p><h2>My Bots</h2></div><span class="hint">Live updates</span></div><div class="toolbar"><select id="botStatusFilter" aria-label="Filter bots"><option value="all">All bots</option><option value="online">Online</option><option value="offline">Offline</option></select><input id="botSearch" class="compact" placeholder="Search bots…" aria-label="Search bots"></div><div id="bots" class="bots"><div class="empty-state">No bots connected yet. Connect a bot above to manage it here.</div></div></section>
   <section class="panel" id="chatPanel"><div class="section-heading"><div><p class="eyebrow">COMMUNICATION</p><h2>Chat & Commands</h2></div></div><div class="toolbar"><select id="chatTarget"><option value="all">All bots</option></select><input id="chatText" class="grow" placeholder="Message or /command…" maxlength="256" autocomplete="off"><button id="btnChat" class="primary">Send</button></div><p class="hint">Commands start with /; other text is sent as a chat message.</p></section>
   <section class="panel" id="activityPanel"><div class="section-heading"><div><p class="eyebrow">SYSTEM</p><h2>Activity Log</h2></div><button id="clearLog" class="ghost">Clear</button></div><div id="log" class="log" role="log" aria-live="polite"></div></section>
 
@@ -45,7 +45,7 @@
       <label>Username<input name="username" required minlength="3" maxlength="32" autocomplete="off"></label>
       <label>Temporary password (10+ characters)<input name="password" type="password" required minlength="10" autocomplete="new-password"></label>
       <label>Account lifetime (days; blank = permanent)<input name="days" type="number" min="1" placeholder="Permanent"></label>
-      <label class="wide">Assigned bot names (comma-separated)<input name="botNames" placeholder="Miner1, Miner2"></label>
+      <label class="wide">Assign available bots<select name="botNames" id="createBotNames" multiple size="4" aria-label="Bots assigned to this account"></select><span class="hint">Only bots not assigned to another account are listed. Use Ctrl/Cmd to select multiple.</span></label>
       <div><button class="primary" type="submit">Create account</button></div>
     </form>
     <label>Search accounts<input id="accountSearch" placeholder="Search username…"></label>
@@ -60,4 +60,4 @@
     </form>
     <p id="accountMessage" class="hint" role="status"></p>
   </section>
-</main><div id="toast" class="toast" hidden></div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=msa-fix-6"></script><script src="/accounts.js"></script></body></html>
+</main><div id="toast" class="toast" hidden></div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=account-ui-fix-1"></script><script src="/accounts.js"></script></body></html>
