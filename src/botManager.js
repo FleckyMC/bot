@@ -204,11 +204,19 @@ class BotManager extends EventEmitter {
     this.save();
     this.log('system', 'Starting Microsoft sign-in (server connection will be a separate step)', 'info');
     this.touch();
-    // Ensure the token-cache directory exists before prismarine-auth starts.
-    // Keep constructor errors inside the same promise chain so the dashboard shows them
-    // instead of leaving the account stuck on "Starting Microsoft sign-in".
-    fs.mkdirSync(profileDir, { recursive: true });
+    // If prismarine-auth never invokes its device-code callback, surface a useful
+    // error instead of leaving the account stuck on "Starting Microsoft sign-in".
+    let deviceCodeReceived = false;
+    const codeWatchdog = setTimeout(() => {
+      if (this.workers.get(name) !== w || deviceCodeReceived || w.status !== 'connecting') return;
+      w.status = 'error';
+      w.detail = 'Microsoft sign-in did not return a device code within 45 seconds. Check server network access and the server log, then try again.';
+      this.log(name, w.detail, 'error');
+      this.touch();
+    }, 45000);
+    if (typeof codeWatchdog.unref === 'function') codeWatchdog.unref();
     Promise.resolve().then(() => {
+      fs.mkdirSync(profileDir, { recursive: true });
       const flow = new Authflow(name, profileDir, {
         authTitle: Titles.MinecraftJava,
         deviceType: 'Win32',
@@ -221,6 +229,10 @@ class BotManager extends EventEmitter {
             this.log(name, 'Microsoft started device authentication but returned no user_code.', 'error');
             return;
           }
+          deviceCodeReceived = true;
+          clearTimeout(codeWatchdog);
+          w.status = 'connecting';
+          w.detail = 'Microsoft device code received. Complete sign-in in the browser.';
           this.setMsa(name, data);
           this.log(name, `Microsoft device code received: ${data.user_code}; sign in at ${data.verification_uri || 'https://www.microsoft.com/link'}.`, 'info');
         } catch (error) {
@@ -229,6 +241,7 @@ class BotManager extends EventEmitter {
       });
       return flow.getMinecraftJavaToken({ fetchProfile: true });
     }).then((result) => {
+      clearTimeout(codeWatchdog);
       if (this.workers.get(name) !== w) return;
       // Keep the device-code card visible after authentication so the user can
       // see which sign-in completed; a new account gets its own new code.
@@ -242,6 +255,7 @@ class BotManager extends EventEmitter {
       this.log(name, 'Microsoft account authenticated. Bot is not connected to the Minecraft server.', 'info');
       this.touch();
     }).catch((error) => {
+      clearTimeout(codeWatchdog);
       if (this.workers.get(name) !== w) return;
       w.status = 'error';
       w.detail = error && error.message ? error.message : 'Microsoft authentication failed';
