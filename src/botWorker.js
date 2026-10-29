@@ -79,7 +79,7 @@ class BotWorker {
         username: this.name,
         ...(m.version && m.version !== 'auto' ? { version: m.version } : {}),
         auth: 'microsoft',
-        profilesFolder: path.join(m.dataDir, 'profiles', safe),
+        profilesFolder: this.profileDir || path.join(m.dataDir, 'profiles', safe),
         onMsaCode: (data) => m.setMsa(this.name, data),
         viewDistance: 'short',
         checkTimeoutInterval: 60000,
