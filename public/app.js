@@ -344,7 +344,9 @@ $('clearLog')?.addEventListener('click', () => { logBox.replaceChildren(); toast
 function addLog(e) {
   const stick = logBox.scrollTop + logBox.clientHeight >= logBox.scrollHeight - 24;
   const d = el('div', e.level === 'warn' || e.level === 'error' ? e.level : '');
-  d.append(el('span', 't', new Date(e.t).toLocaleTimeString('de-DE') + ' '), el('span', 'src', `[${e.source}] `), document.createTextNode(e.text));
+  const sourceBot = state && (state.bots || []).find((b) => b.name === e.source);
+  const sourceLabel = sourceBot ? (sourceBot.accountName || sourceBot.name) : e.source;
+  d.append(el('span', 't', new Date(e.t).toLocaleTimeString('de-DE') + ' '), el('span', 'src', `[${sourceLabel}] `), document.createTextNode(e.text));
   logBox.append(d);
   while (logBox.childElementCount > 400) logBox.firstElementChild.remove();
   if (stick) logBox.scrollTop = logBox.scrollHeight;
