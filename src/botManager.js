@@ -114,7 +114,7 @@ class BotManager extends EventEmitter {
       url: data.verification_uri || 'https://www.microsoft.com/link',
       expiresAt: Date.now() + (data.expires_in || 900) * 1000,
     });
-    this.log(name, `Microsoft-Login: Code ${data.user_code} auf ${data.verification_uri || 'microsoft.com/link'} eingeben`, 'warn');
+    this.log(name, 'Microsoft device code is available in the active sign-in panel.', 'warn');
     this.touch();
   }
 
