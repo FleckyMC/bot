@@ -149,7 +149,7 @@ function render(s) {
   if (choices) {
     const search = ($('connectBotSearch')?.value || '').trim().toLowerCase();
     choices.replaceChildren();
-    const bots = s.bots.filter((b) => !search || String(b.accountName || b.name).toLowerCase().includes(search) || b.name.toLowerCase().includes(search));
+    const bots = s.bots.filter((b) => !search || String(b.accountName || 'Minecraft profile pending').toLowerCase().includes(search) || b.name.toLowerCase().includes(search));
     if (!bots.length) choices.append(el('p', 'muted', s.bots.length ? 'No bots match your search.' : 'No saved bot accounts yet.'));
     for (const b of bots) {
       const label = el('label', 'connect-bot-choice');
@@ -162,7 +162,7 @@ function render(s) {
         else selectedConnectBots.delete(b.name);
       });
       const info = el('span', 'connect-bot-info');
-      info.append(el('b', '', b.accountName || b.name), el('small', '', b.pos ? 'Connected to server' : (b.status === 'error' ? (b.detail || 'Authentication error') : (b.detail || b.status))));
+      info.append(el('b', '', b.accountName || 'Minecraft profile pending'), el('small', '', b.pos ? 'Connected to server' : (b.status === 'error' ? (b.detail || 'Authentication error') : (b.detail || b.status))));
       label.append(checkbox, info);
       choices.append(label);
     }
@@ -176,9 +176,9 @@ function render(s) {
     const [label, cls] = STATUS[b.status] || [b.status, ''];
     const card = el('div', 'bot');
     const top = el('div', 'top');
-    top.append(el('span', 'name', b.accountName || b.name), el('span', 'chip ' + cls, label));
+    top.append(el('span', 'name', b.accountName || 'Minecraft profile pending'), el('span', 'chip ' + cls, label));
     card.append(top);
-    const account = el('div', 'detail', b.accountName ? `Minecraft player: ${b.accountName}` : 'Minecraft player: shown after Microsoft login');
+    const account = el('div', 'detail', b.accountName ? `Minecraft player: ${b.accountName}` : 'Minecraft player: profile not available yet');
     card.append(account, el('div', 'detail', b.detail || ' '));
     const noteKey = 'bot-note:' + b.name;
     const note = el('div', 'detail bot-note');
