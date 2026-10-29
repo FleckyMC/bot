@@ -11,3 +11,10 @@ button{display:inline-flex;justify-content:center;align-items:center;gap:7px;pad
 .dashboard-nav a:hover,.dashboard-nav a:focus{color:var(--text);border-color:var(--accent);background:var(--surface2)}
 #activityPanel #clearLog{margin-left:auto}
 @media(max-width:700px){.dashboard-nav{top:66px}.dashboard-nav a{padding:6px 10px}}
+
+.connect-bot-choices{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:8px;margin:10px 0 14px}
+.connect-bot-choice{display:flex;align-items:center;gap:10px;min-width:0;padding:11px 12px;border:1px solid var(--line);border-radius:11px;background:var(--surface2);cursor:pointer}
+.connect-bot-choice input{width:17px;height:17px;flex:0 0 auto}
+.connect-bot-info{display:grid;gap:2px;min-width:0}
+.connect-bot-info b{overflow-wrap:anywhere}
+.connect-bot-info small{font-size:10px;color:var(--muted);overflow-wrap:anywhere}
