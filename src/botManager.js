@@ -5,7 +5,6 @@ const fs = require('fs');
 const config = require('./config');
 const planner = require('./planner');
 const { BotWorker } = require('./botWorker');
-const { Authflow, Titles } = require('prismarine-auth');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const NAME_RE = /^[A-Za-z0-9_]{3,16}$/;
@@ -189,82 +188,21 @@ class BotManager extends EventEmitter {
     while (this.workers.has(`MicrosoftAccount${index}`)) index++;
     const name = `MicrosoftAccount${index}`;
     const safe = name.replace(/[^A-Za-z0-9_.@-]/g, '_');
-    // Every add-account attempt gets a fresh Microsoft token cache, otherwise
-    // prismarine-auth can silently reuse the previously signed-in Microsoft account.
+    // Use Mineflayer's native Microsoft auth when the account is connected to a server.
+    // A separate pre-authentication flow caused a second, competing sign-in request.
     const profileDir = path.join(this.dataDir, 'profiles', `${safe}-${Date.now()}`);
     const w = new BotWorker(this, name);
     w.profileDir = profileDir;
     this.accountProfiles[name] = profileDir;
     w.authMethod = 'microsoft';
     w.wantConnected = false;
-    w.status = 'connecting';
-    w.detail = 'Starting Microsoft sign-in';
+    w.status = 'offline';
+    w.detail = 'Account added. Enter the server address, select this account, and connect to start Microsoft sign-in.';
     this.workers.set(name, w);
     this.names = [...new Set([...this.names, name])];
     this.save();
-    this.log('system', 'Starting Microsoft sign-in (server connection will be a separate step)', 'info');
+    this.log('system', 'Microsoft account added. Select it and connect to the server to request a sign-in code.', 'info');
     this.touch();
-    // If prismarine-auth never invokes its device-code callback, surface a useful
-    // error instead of leaving the account stuck on "Starting Microsoft sign-in".
-    let deviceCodeReceived = false;
-    const codeWatchdog = setTimeout(() => {
-      if (this.workers.get(name) !== w || deviceCodeReceived || w.status !== 'connecting') return;
-      w.status = 'error';
-      w.detail = 'Microsoft sign-in did not return a device code within 45 seconds. Check server network access and the server log, then try again.';
-      this.log(name, w.detail, 'error');
-      this.touch();
-    }, 45000);
-    if (typeof codeWatchdog.unref === 'function') codeWatchdog.unref();
-    Promise.resolve().then(() => {
-      fs.mkdirSync(profileDir, { recursive: true });
-      const flow = new Authflow(name, profileDir, {
-        authTitle: Titles.MinecraftJava,
-        deviceType: 'Win32',
-        flow: 'live',
-      }, (data) => {
-        // Log the callback arrival separately so device-code delivery can be diagnosed
-        // even if the browser misses a state update.
-        try {
-          if (!data || !data.user_code) {
-            this.log(name, 'Microsoft started device authentication but returned no user_code.', 'error');
-            return;
-          }
-          deviceCodeReceived = true;
-          clearTimeout(codeWatchdog);
-          w.status = 'connecting';
-          w.detail = 'Microsoft device code received. Complete sign-in in the browser.';
-          this.setMsa(name, data);
-          this.log(name, `Microsoft device code received: ${data.user_code}; sign in at ${data.verification_uri || 'https://www.microsoft.com/link'}.`, 'info');
-        } catch (error) {
-          this.log(name, `Microsoft device-code callback failed: ${error.message}`, 'error');
-        }
-      });
-      return flow.getMinecraftJavaToken({ fetchProfile: true });
-    }).then((result) => {
-      clearTimeout(codeWatchdog);
-      if (this.workers.get(name) !== w) return;
-      // Keep the device-code card visible after authentication so the user can
-      // see which sign-in completed; a new account gets its own new code.
-      const profileName = result && result.profile && result.profile.name;
-      if (!profileName) throw new Error('Microsoft login completed, but no Minecraft Java profile was returned. Check that this Microsoft account owns Minecraft Java Edition.');
-      w.accountName = profileName;
-      this.accountNames[name] = profileName;
-      this.save();
-      w.status = 'offline';
-      w.detail = 'Microsoft account authenticated. Select this bot and connect to the Minecraft server when ready.';
-      this.log(name, 'Microsoft account authenticated. Bot is not connected to the Minecraft server.', 'info');
-      this.touch();
-    }).catch((error) => {
-      clearTimeout(codeWatchdog);
-      if (this.workers.get(name) !== w) return;
-      w.status = 'error';
-      w.detail = error && error.message ? error.message : 'Microsoft authentication failed';
-      this.log(name, `Microsoft authentication failed: ${w.detail}`, 'error');
-      if (/device_code.*expired|expired.*device_code/i.test(w.detail)) {
-        w.detail = 'Microsoft sign-in code expired before authentication completed. Remove this unfinished account and click Add Microsoft account again to request a fresh code.';
-      }
-      this.touch();
-    });
   }
 
   connectSelected(p) {
