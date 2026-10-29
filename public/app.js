@@ -121,15 +121,32 @@ function render(s) {
     copy.title = 'Copy sign-in code';
     copy.setAttribute('aria-label', 'Copy sign-in code');
     copy.onclick = async () => {
-      try { await navigator.clipboard.writeText(b.msa.code); toast('Sign-in code copied'); }
-      catch { toast('Could not copy code. Please select and copy it manually.', true); }
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(b.msa.code);
+        } else {
+          const input = document.createElement('textarea');
+          input.value = b.msa.code;
+          input.setAttribute('readonly', '');
+          input.style.position = 'fixed';
+          input.style.opacity = '0';
+          document.body.append(input);
+          input.select();
+          const copied = document.execCommand('copy');
+          input.remove();
+          if (!copied) throw new Error('copy failed');
+        }
+        toast('Sign-in code copied');
+      } catch {
+        toast('Copy failed. Please select the code and copy it manually.', true);
+      }
     };
     row.append(copy);
-    const a = el('a', '', 'Open sign-in page');
+    const a = el('a', 'primary msa-open', 'Open Microsoft sign-in');
     try {
-      const u = new URL(b.msa.url);
+      const u = new URL(b.msa.url || 'https://www.microsoft.com/link');
       if (u.protocol === 'https:') { a.href = u.href; a.target = '_blank'; a.rel = 'noopener noreferrer'; }
-    } catch { /* kein Link */ }
+    } catch { /* invalid link */ }
     row.append(a);
     list.append(row);
   }
