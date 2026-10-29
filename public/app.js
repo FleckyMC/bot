@@ -123,7 +123,7 @@ function render(s) {
   const msaByName = new Map();
   for (const b of s.bots) {
     if (b.msa && b.msa.code && (!b.msa.expiresAt || b.msa.expiresAt > Date.now())) msaByName.set(b.name, b);
-    else if (b.newAccountSignIn && !b.accountName && b.status !== 'offline') {
+    else if (b.newAccountSignIn && !b.accountName && (b.status === 'connecting' || b.status === 'reconnecting')) {
       // Show the sign-in panel immediately, even while prismarine-auth is still
       // waiting for Microsoft's device-code response.
       msaByName.set(b.name, {
