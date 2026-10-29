@@ -78,6 +78,13 @@ app.post('/login', (req, res) => {
 
 app.get('/api/me', (req, res) => { const user = auth.sessionUser(auth.tokenFrom(req)); if (!user) return res.status(401).json({error:'Not signed in'}); res.json({user:auth.publicUser(user)}); });
 app.get('/api/admin/users', (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, requireAdmin, (req, res) => res.json({users:auth.getUsers().map(auth.publicUser)}));
+app.get('/api/admin/bots', (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, requireAdmin, (req, res) => {
+  const users = auth.getUsers().filter(u => u.role !== 'admin');
+  const assigned = new Map();
+  for (const user of users) for (const n of (user.botNames || [])) assigned.set(String(n).toLowerCase(), user.username);
+  const bots = [...manager.workers.values()].map(w => ({ name:w.name, accountName:w.accountName || manager.accountNames[w.name] || '', assignedTo:assigned.get(String(w.accountName || manager.accountNames[w.name] || w.name).toLowerCase()) || assigned.get(String(w.name).toLowerCase()) || null }));
+  res.json({bots});
+});
 app.post('/api/admin/users', express.json({limit:'16kb'}), (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, requireAdmin, (req, res) => { try { res.status(201).json({user:auth.createUser(req.body || {})}); } catch(e) { res.status(400).json({error:e.message}); } });
 app.patch('/api/admin/users/:id', express.json({limit:'16kb'}), (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, requireAdmin, (req, res) => { try { res.json({user:auth.updateUser(req.params.id, req.body || {})}); } catch(e) { res.status(400).json({error:e.message}); } });
 app.delete('/api/admin/users/:id', (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, requireAdmin, (req, res) => { try { auth.deleteUser(req.params.id); res.status(204).end(); } catch(e) { res.status(400).json({error:e.message}); } });
