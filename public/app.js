@@ -402,7 +402,7 @@ $('btnDisconnect').onclick = () => { const names = [...selectedConnectBots]; if 
 $('closeMsaModal').onclick = () => { msaModalDismissed = true; $('msaCard').hidden = true; };
 
 $('btnAddBot').onclick = () => {
-  act('add_bot', { auth: 'microsoft' }, 'Starting Microsoft sign-in…');
+  act('add_bot', { auth: 'microsoft' }, 'Microsoft account added. Enter the server address, select the account, then connect to start sign-in.');
 };
 
 $('btnArea').onclick = () => {
