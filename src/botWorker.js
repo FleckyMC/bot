@@ -799,8 +799,11 @@ class BotWorker {
   // ---------------------------------------------------------------- Chat / Status
 
   chat(text) {
-    if (!this.bot || !this.spawned) throw new Error(`${this.name} ist nicht verbunden`);
-    this.bot.chat(text);
+    if (!this.bot || !this.spawned || !this.bot.entity) throw new Error(`${this.accountName || this.name} ist nicht verbunden oder noch nicht gespawnt`);
+    const message = String(text || '').trim();
+    if (!message) throw new Error('Leere Nachricht');
+    this.bot.chat(message);
+    this.m.log(this.name, `Chat gesendet: ${message}`, 'chat');
   }
 
   snapshot() {
