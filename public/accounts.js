@@ -9,11 +9,30 @@
     if(!r.ok)throw new Error(data.error||'Request failed');
     return data;
   }
-  let users=[];
+  let users=[], bots=[];
+  async function loadBots(){ const d=await api('/api/admin/bots'); bots=d.bots||[]; }
+  function assignedElsewhere(bot, user) {
+    if (!bot.assignedTo) return false;
+    return !user || bot.assignedTo !== user.username;
+  }
+  function makeBotSelect(select, selected=[], user=null) {
+    if(!select)return;
+    const chosen=new Set(selected.map(String));
+    select.replaceChildren();
+    const available=bots.filter(b=>!assignedElsewhere(b,user)||chosen.has(b.name)||chosen.has(b.accountName));
+    for(const b of available){
+      const opt=document.createElement('option');
+      opt.value=b.accountName||b.name;
+      opt.textContent=(b.accountName||'Minecraft account pending')+(b.assignedTo?' · assigned to '+b.assignedTo:'');
+      opt.selected=chosen.has(b.name)||chosen.has(b.accountName);
+      select.append(opt);
+    }
+  }
   async function loadUsers(){
-    try { const d=await api('/api/admin/users'); users=d.users||[]; drawUsers(); }
+    try { await loadBots(); const d=await api('/api/admin/users'); users=d.users||[]; drawUsers(); makeBotSelect($('createBotNames')); }
     catch(e){ message(e.message,true); }
   }
+  function selectedBots(select){return select?[...select.selectedOptions].map(o=>o.value):[];}
   function drawUsers(){
     const root=$('accountList'); if(!root)return; root.replaceChildren();
     const q=($('accountSearch').value||'').toLowerCase();
@@ -26,14 +45,25 @@
       const role=document.createElement('span');role.className='chip';role.textContent=u.role==='admin'?'Admin':'User';
       top.append(name,role);card.append(top);
       const expiry=document.createElement('div');expiry.className='detail';expiry.textContent='Lifetime: '+(u.expiresAt?new Date(u.expiresAt).toLocaleString():'Permanent');card.append(expiry);
-      const bots=document.createElement('div');bots.className='detail';bots.textContent='Assigned bots: '+((u.botNames||[]).join(', ')||'None');card.append(bots);
+      const assigned=document.createElement('div');assigned.className='detail';assigned.textContent='Assigned bots: '+((u.botNames||[]).join(', ')||'None');card.append(assigned);
       const actions=document.createElement('div');actions.className='row wrap';
       const edit=document.createElement('button');edit.className='ghost';edit.textContent='Edit access / lifetime';
       edit.onclick=async()=>{
-        const botText=prompt('Assigned bot names, comma-separated', (u.botNames||[]).join(', '));if(botText===null)return;
-        const daysText=prompt('Lifetime in days (blank = permanent)',u.expiresAt?String(Math.max(1,Math.ceil((u.expiresAt-Date.now())/86400000))):'');if(daysText===null)return;
-        const expiresAt=daysText.trim()?Date.now()+Math.max(1,Number(daysText))*86400000:null;
-        try{await api('/api/admin/users/'+encodeURIComponent(u.id),{method:'PATCH',body:JSON.stringify({botNames:botText.split(',').map(x=>x.trim()).filter(Boolean),expiresAt})});await loadUsers();message('Account updated.');}catch(e){message(e.message,true);}
+        try {
+          const wrapper=document.createElement('div');wrapper.className='account-bot-editor';
+          const label=document.createElement('label');label.textContent='Assigned bots (only unassigned bots or this account)';
+          const select=document.createElement('select');select.multiple=true;select.size=5;
+          makeBotSelect(select,u.botNames||[],u);label.append(select);wrapper.append(label);
+          const daysLabel=document.createElement('label');daysLabel.textContent='Lifetime in days (blank = permanent)';
+          const days=document.createElement('input');days.type='number';days.min='1';days.placeholder='Permanent';days.value=u.expiresAt?String(Math.max(1,Math.ceil((u.expiresAt-Date.now())/86400000))):'';daysLabel.append(days);wrapper.append(daysLabel);
+          const dlg=document.createElement('dialog');dlg.className='account-edit-dialog';dlg.append(wrapper);
+          const save=document.createElement('button');save.className='primary';save.textContent='Save changes';
+          const cancel=document.createElement('button');cancel.className='ghost';cancel.textContent='Cancel';
+          const row=document.createElement('div');row.className='row wrap';row.append(save,cancel);dlg.append(row);document.body.append(dlg);
+          cancel.onclick=()=>dlg.close();
+          save.onclick=async()=>{try{const daysText=days.value.trim();const expiresAt=daysText?Date.now()+Math.max(1,Number(daysText))*86400000:null;await api('/api/admin/users/'+encodeURIComponent(u.id),{method:'PATCH',body:JSON.stringify({botNames:selectedBots(select),expiresAt})});dlg.close();dlg.remove();await loadUsers();message('Account updated.');}catch(e){message(e.message,true);}};
+          dlg.addEventListener('close',()=>dlg.remove(),{once:true});dlg.showModal();
+        } catch(e){message(e.message,true);}
       };
       actions.append(edit);
       const view=document.createElement('button');view.className='ghost';view.textContent='View as account';view.onclick=()=>{window.dispatchEvent(new CustomEvent('dashboard:view-as',{detail:{userId:u.id,username:u.username}}));message('Viewing account: '+u.username);};
@@ -48,16 +78,16 @@
   }
   $('createAccount')?.addEventListener('submit',async e=>{
     e.preventDefault();const f=new FormData(e.currentTarget);const days=String(f.get('days')||'').trim();
-    const payload={username:f.get('username'),password:f.get('password'),botNames:String(f.get('botNames')||'').split(',').map(x=>x.trim()).filter(Boolean),expiresAt:days?Date.now()+Math.max(1,Number(days))*86400000:null};
+    const payload={username:f.get('username'),password:f.get('password'),botNames:selectedBots($('createBotNames')),expiresAt:days?Date.now()+Math.max(1,Number(days))*86400000:null};
     try{await api('/api/admin/users',{method:'POST',body:JSON.stringify(payload)});e.currentTarget.reset();await loadUsers();message('Account created.');}catch(err){message(err.message,true);}
   });
   $('refreshAccounts')?.addEventListener('click',loadUsers);
-  $('exitViewAs')?.addEventListener('click',()=>{window.dispatchEvent(new CustomEvent('dashboard:exit-view-as'));message('Returned to admin view.');});
   $('accountSearch')?.addEventListener('input',drawUsers);
   $('changePassword')?.addEventListener('submit',async e=>{
     e.preventDefault();const f=new FormData(e.currentTarget);
     try{await api('/api/password',{method:'POST',body:JSON.stringify({currentPassword:f.get('currentPassword'),newPassword:f.get('newPassword')})});e.currentTarget.reset();message('Password updated.');}
     catch(err){message(err.message,true);}
   });
-  api('/api/me').then(({user})=>{if(user?.role==='admin'){$('accountPanel').hidden=false;const nav=$('adminNav');if(nav)nav.hidden=false;loadUsers();}}).catch(()=>{});
+  $('exitViewAs')?.addEventListener('click',()=>{window.dispatchEvent(new CustomEvent('dashboard:exit-view-as'));message('Returned to admin view.');});
+  api('/api/me').then(async({user})=>{if(user?.role==='admin'){$('accountPanel').hidden=false;const nav=$('adminNav');if(nav)nav.hidden=false;await loadUsers();}}).catch(()=>{});
 })();
