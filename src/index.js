@@ -142,7 +142,7 @@ const owned = (name, user) => {
   const profileName = worker && worker.accountName || manager.accountNames[name];
   return assigned.has(String(name).toLowerCase()) || (!!profileName && assigned.has(String(profileName).toLowerCase()));
 };
-const snapshotFor = (user) => { const snap=manager.snapshot(); if (isAdmin(user)) return snap; snap.bots=snap.bots.filter(b=>owned(b.name,user)); snap.names=snap.bots.map(b=>b.name); return {...snap,connection:null,area:null,settings:{},mining:false}; };
+const snapshotFor = (user) => { const snap=manager.snapshot(); if (isAdmin(user)) return snap; snap.bots=snap.bots.filter(b=>owned(b.name,user)); snap.names=snap.bots.map(b=>b.name); snap.pendingSignIns=[]; return {...snap,connection:null,area:null,settings:{},mining:false}; };
 io.on('connection', (socket) => {
   const originalUser = () => auth.getUsers().find(u => u.id === socketUserById.get(socket.id));
   const currentUser = () => { const original=originalUser(); const target=viewAsBySocket.get(socket.id); return isAdmin(original)&&target ? auth.getUsers().find(u=>u.id===target) || original : original; };
