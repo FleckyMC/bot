@@ -184,7 +184,6 @@ class BotManager extends EventEmitter {
       this.touch();
     }).catch((error) => {
       if (this.workers.get(name) !== w) return;
-      this.clearMsa(name);
       w.status = 'error';
       w.detail = error && error.message ? error.message : 'Microsoft authentication failed';
       this.log(name, `Microsoft authentication failed: ${w.detail}`, 'error');
