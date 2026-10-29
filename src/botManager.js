@@ -172,7 +172,8 @@ class BotManager extends EventEmitter {
     }, (data) => this.setMsa(name, data));
     Promise.resolve(flow.getMinecraftJavaToken({ fetchProfile: true })).then((result) => {
       if (this.workers.get(name) !== w) return;
-      this.clearMsa(name);
+      // Keep the device-code card visible after authentication so the user can
+      // see which sign-in completed; a new account gets its own new code.
       const profileName = result && result.profile && result.profile.name;
       if (!profileName) throw new Error('Microsoft login completed, but no Minecraft Java profile was returned. Check that this Microsoft account owns Minecraft Java Edition.');
       w.accountName = profileName;
