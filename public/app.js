@@ -114,11 +114,18 @@ function render(s) {
 
   // Microsoft-Codes. The Activity Log is also a fallback source in case a state
   // snapshot arrives without the msa field (for example during a reconnect).
-  const msa = s.bots.map((b) => {
-    if (b.msa) return b;
+  const msaByName = new Map();
+  for (const b of s.bots) {
     const logged = msaFromLogs.get(b.name);
-    return logged ? { ...b, msa: logged } : null;
-  }).filter(Boolean);
+    if (b.msa) msaByName.set(b.name, b);
+    else if (logged) msaByName.set(b.name, { ...b, msa: logged });
+  }
+  // A log event can arrive just before the matching bot appears in a state snapshot.
+  // Render the real device code from that event anyway instead of hiding the sign-in panel.
+  for (const [name, logged] of msaFromLogs) {
+    if (!msaByName.has(name)) msaByName.set(name, { name, accountName: name, msa: logged });
+  }
+  const msa = [...msaByName.values()];
   const msaSignature = msa.map((b) => `${b.name}:${b.msa.code}`).join('|');
   if (msaSignature !== lastMsaSignature) { msaModalDismissed = false; lastMsaSignature = msaSignature; }
   $('msaCard').hidden = !msa.length || msaModalDismissed;
