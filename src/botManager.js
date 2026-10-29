@@ -5,6 +5,7 @@ const fs = require('fs');
 const config = require('./config');
 const planner = require('./planner');
 const { BotWorker } = require('./botWorker');
+const { Authflow, Titles } = require('prismarine-auth');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const NAME_RE = /^[A-Za-z0-9_]{3,16}$/;
@@ -70,6 +71,7 @@ class BotManager extends EventEmitter {
     }
     this.mining = false;
     this.msa = new Map();
+    this.pendingAccounts = new Map();
     this.logs = [];
     this.touchTimer = null;
   }
@@ -138,7 +140,8 @@ class BotManager extends EventEmitter {
       areaVolume: this.area ? planner.volume(planner.normalizeArea(this.area.p1, this.area.p2)) : 0,
       settings: this.settings,
       mining: this.mining,
-      bots: [...this.workers.values()].map((w) => w.snapshot()),
+      bots: [...this.workers.values()].filter((w) => !!(w.accountName || this.accountNames[w.name])).map((w) => w.snapshot()),
+      pendingSignIns: [...this.pendingAccounts.values()].map((p) => ({ name: p.name, msa: this.msa.get(p.name) || null, detail: p.detail || 'Waiting for Microsoft sign-in' })),
     };
   }
 
@@ -184,32 +187,52 @@ class BotManager extends EventEmitter {
     this.touch();
   }
 
-  addBot(p = {}) {
-    // The native Mineflayer Microsoft flow needs a target server to start.
-    // Keep the UX explicit: enter the server address, then click Add Microsoft account.
-    const { host, port } = parseHost(p.host, p.port);
-    this.connection = { ...this.connection, host, port: port || 25565, auth: 'microsoft' };
-    this.save();
-
+  addBot() {
+    // Adding an account only authenticates with Microsoft. It must not connect
+    // to any Minecraft server; the user chooses a server later via Connect.
     let index = 1;
-    while (this.workers.has(`MicrosoftAccount${index}`)) index++;
+    while (this.workers.has(`MicrosoftAccount${index}`) || this.pendingAccounts.has(`MicrosoftAccount${index}`)) index++;
     const name = `MicrosoftAccount${index}`;
     const safe = name.replace(/[^A-Za-z0-9_.@-]/g, '_');
     const profileDir = path.join(this.dataDir, 'profiles', `${safe}-${Date.now()}`);
-    const w = new BotWorker(this, name);
-    w.profileDir = profileDir;
-    this.accountProfiles[name] = profileDir;
-    w.authMethod = 'microsoft';
-    w.newAccountSignIn = true;
-    w.wantConnected = true;
-    w.status = 'connecting';
-    w.detail = 'Starting Microsoft sign-in';
-    this.workers.set(name, w);
-    this.names = [...new Set([...this.names, name])];
-    this.save();
-    this.log('system', `Starting Microsoft sign-in and connecting to ${host}:${this.connection.port}. Complete the device-code prompt when it appears.`, 'info');
-    w.connect();
+    const pending = { name, profileDir, detail: 'Microsoft sign-in in progress' };
+    this.pendingAccounts.set(name, pending);
+    this.log('system', 'Starting Microsoft account sign-in. No Minecraft server connection will be started.', 'info');
     this.touch();
+
+    (async () => {
+      try {
+        const flow = new Authflow(name, profileDir, { authTitle: Titles.MinecraftJava }, (data) => this.setMsa(name, data));
+        const result = await flow.getMinecraftJavaToken({ fetchProfile: true });
+        const profile = result && (result.profile || result);
+        const playerName = profile && (profile.name || profile.username);
+        if (!playerName || !/^[A-Za-z0-9_]{3,16}$/.test(String(playerName))) {
+          throw new Error('Microsoft login completed, but no valid Minecraft Java profile was returned. Check that the account owns Minecraft Java Edition.');
+        }
+        const worker = new BotWorker(this, name);
+        worker.profileDir = profileDir;
+        worker.authMethod = 'microsoft';
+        worker.accountName = String(playerName);
+        worker.newAccountSignIn = false;
+        worker.wantConnected = false;
+        worker.status = 'offline';
+        worker.detail = 'Microsoft account connected. Select a server and click Connect to join.';
+        this.workers.set(name, worker);
+        this.accountNames[name] = String(playerName);
+        this.accountProfiles[name] = profileDir;
+        this.names = [...new Set([...this.names, name])];
+        this.pendingAccounts.delete(name);
+        this.clearMsa(name);
+        this.save();
+        this.log(name, `Microsoft account connected: ${playerName}. No server connection started.`, 'info');
+        this.touch();
+      } catch (e) {
+        this.pendingAccounts.delete(name);
+        this.clearMsa(name);
+        this.log(name, `Microsoft sign-in failed: ${e && e.message ? e.message : e}`, 'error');
+        this.touch();
+      }
+    })();
   }
 
   connectSelected(p) {
