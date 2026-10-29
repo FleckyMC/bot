@@ -203,10 +203,10 @@ function render(s) {
       const target = prompt('Automatischer Trading: Ergebnis-Itemname (z. B. emerald) ODER Angebotsnummer. Leer lassen, um nur Angebote anzuzeigen.');
       if (target === null) return;
       if (!target.trim()) { act('bot_profile', { name: b.name, profile: 'trading', options: {} }, `${b.name}: Tradingsangebote anzeigen`); return; }
-      const countRaw = prompt('Maximale Anzahl Trades (1–256). Der Bot stoppt früher, wenn das Angebot ausverkauft ist oder Materialien fehlen.', '16');
+      const countRaw = prompt('Maximum number of trades (1–256). The bot stops earlier if the offer sells out or materials are missing.', '16');
       if (countRaw === null) return;
       const count = Number(countRaw);
-      if (!Number.isInteger(count) || count < 1 || count > 256) return toast('Menge muss zwischen 1 und 256 liegen', true);
+      if (!Number.isInteger(count) || count < 1 || count > 256) return toast('Amount must be between 1 and 256', true);
       const options = { tradeCount: count };
       if (/^\d+$/.test(target.trim())) options.tradeIndex = Number(target.trim()) - 1;
       else options.outputItem = target.trim();
@@ -298,7 +298,7 @@ $('btnConnect').onclick = () => act('connect_bots', {
   host: $('host').value,
   auth: 'microsoft',
   names: $('names').value.split(/\r?\n/),
-}, 'Verbinde...');
+}, 'Connecting…');
 $('btnDisconnect').onclick = () => { if (confirm('All bots trennen?')) act('disconnect_bots', {}, 'Disconnected'); };
 $('btnAddBot').onclick = () => {
   act('add_bot', { auth: 'microsoft' }, 'Starting Microsoft sign-in…');
