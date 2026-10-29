@@ -425,10 +425,13 @@ class BotManager extends EventEmitter {
     }
     const ready = [...this.workers.values()].filter((w) => w.bot && w.spawned);
     if (!ready.length) throw new Error('Kein Bot ist verbunden');
+    let sent = 0;
+    const errors = [];
     for (const w of ready) {
-      try { w.chat(t); } catch (e) { this.log(w.name, e.message, 'warn'); }
+      try { w.chat(t); sent++; } catch (e) { errors.push(`${w.accountName || w.name}: ${e.message}`); this.log(w.name, `Chat konnte nicht gesendet werden: ${e.message}`, 'error'); }
       await sleep(300); // nicht alle gleichzeitig, sonst Spam-Kick
     }
+    if (!sent) throw new Error(errors.join(' | ') || 'Nachricht konnte an keinen verbundenen Bot gesendet werden');
   }
 }
 
