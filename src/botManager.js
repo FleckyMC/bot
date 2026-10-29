@@ -32,7 +32,7 @@ class BotManager extends EventEmitter {
     this.version = version && version !== 'auto' ? version : (cfg.version || 'auto');
     this.accountNames = cfg.accountNames || {};
     // Only fully authenticated Minecraft profiles are persisted as selectable bots.
-    this.names = Array.isArray(cfg.names) ? [...new Set(cfg.names.filter((n) => typeof n === 'string' && n.trim() && this.accountNames[n]))] : [];
+    this.names = [...new Set([...(Array.isArray(cfg.names) ? cfg.names.filter((n) => typeof n === 'string' && n.trim() && this.accountNames[n]) : []), ...Object.keys(this.accountNames).filter((n) => this.accountNames[n])])];
     this.accountProfiles = cfg.accountProfiles || {};
     this.area = cfg.area;
     this.settings = cfg.settings;
@@ -203,7 +203,7 @@ class BotManager extends EventEmitter {
 
     (async () => {
       try {
-        const flow = new Authflow(name, profileDir, { authTitle: Titles.MinecraftJava }, (data) => this.setMsa(name, data));
+        const flow = new Authflow(name, profileDir, { flow: 'live', authTitle: Titles.MinecraftJava }, (data) => this.setMsa(name, data));
         const result = await flow.getMinecraftJavaToken({ fetchProfile: true });
         const profile = result && (result.profile || result);
         const playerName = profile && (profile.name || profile.username);
