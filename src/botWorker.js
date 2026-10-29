@@ -135,8 +135,14 @@ class BotWorker {
       m.log(this.name, `Verbindung getrennt (${reason || 'unbekannt'})`, 'warn');
       if (!this.wantConnected) { this.setStatus('offline'); return; }
       this.attempts++;
+      if (this.attempts > 5) {
+        this.wantConnected = false;
+        this.setStatus('error', 'Connection failed after 5 attempts. Check the server address, version, and account access.');
+        m.log(this.name, 'Stopped reconnecting after 5 failed attempts', 'error');
+        return;
+      }
       const delay = Math.min(60000, 5000 * 2 ** Math.min(this.attempts - 1, 4));
-      this.setStatus('reconnecting', `Neuer Versuch in ${Math.round(delay / 1000)}s`);
+      this.setStatus('reconnecting', `Retrying in ${Math.round(delay / 1000)}s (attempt ${this.attempts}/5)`);
       this.reconnectTimer = setTimeout(() => this.connect(), delay);
     });
   }
@@ -796,7 +802,7 @@ class BotWorker {
     const snap = {
       name: this.name,
       profile: this.profile,
-      accountName: bot && bot.username ? bot.username : null,
+      accountName: this.accountName || (bot && bot.username ? bot.username : null),
       authMethod: this.authMethod || this.m.connection.auth || 'microsoft',
       status: this.status,
       detail: this.detail,
