@@ -5,6 +5,8 @@ let state = null;
 let formsFilled = false;
 let msaModalDismissed = false;
 let lastMsaSignature = '';
+// Fallback for device codes that arrive in the Activity Log before the state snapshot.
+const msaFromLogs = new Map();
 const selectedConnectBots = new Set();
 const inventoryShown = new Set();
 let lastScroll = { x: 0, y: 0 };
@@ -110,8 +112,13 @@ function render(s) {
   if ($('btnStartMining')) $('btnStartMining').disabled = s.mining || !s.bots.length || !s.area;
   $('areaInfo').textContent = s.area ? `${s.areaVolume.toLocaleString('de-DE')} blocks saved` : '';
 
-  // Microsoft-Codes
-  const msa = s.bots.filter((b) => b.msa);
+  // Microsoft-Codes. The Activity Log is also a fallback source in case a state
+  // snapshot arrives without the msa field (for example during a reconnect).
+  const msa = s.bots.map((b) => {
+    if (b.msa) return b;
+    const logged = msaFromLogs.get(b.name);
+    return logged ? { ...b, msa: logged } : null;
+  }).filter(Boolean);
   const msaSignature = msa.map((b) => `${b.name}:${b.msa.code}`).join('|');
   if (msaSignature !== lastMsaSignature) { msaModalDismissed = false; lastMsaSignature = msaSignature; }
   $('msaCard').hidden = !msa.length || msaModalDismissed;
@@ -307,6 +314,11 @@ function render(s) {
 const logBox = $('log');
 $('clearLog')?.addEventListener('click', () => { logBox.replaceChildren(); toast('Activity log cleared'); });
 function addLog(e) {
+  const codeMatch = String(e.text || '').match(/Microsoft-Login:\\s*Code\\s+([A-Z0-9-]+)\\s+auf\\s+(https:\\/\\/\\S+|[\\w.-]+\\/\\S*)/i);
+  if (codeMatch && e.source) {
+    msaFromLogs.set(e.source, { code: codeMatch[1], url: /^https:\\/\\//i.test(codeMatch[2]) ? codeMatch[2] : 'https://www.microsoft.com/link' });
+    if (state) render(state);
+  }
   const stick = logBox.scrollTop + logBox.clientHeight >= logBox.scrollHeight - 24;
   const d = el('div', e.level === 'warn' || e.level === 'error' ? e.level : '');
   d.append(el('span', 't', new Date(e.t).toLocaleTimeString('de-DE') + ' '), el('span', 'src', `[${e.source}] `), document.createTextNode(e.text));
