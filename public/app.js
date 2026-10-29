@@ -119,9 +119,9 @@ function render(s) {
     const logged = msaFromLogs.get(b.name);
     if (b.msa) msaByName.set(b.name, b);
     else if (logged) msaByName.set(b.name, { ...b, msa: logged });
-    else if (b.authMethod === 'microsoft' && (
-      (b.status === 'connecting' && /Microsoft sign-in/i.test(b.detail || '')) ||
-      (b.status === 'error' && /Microsoft sign-in did not return a device code/i.test(b.detail || ''))
+    else if (b.authMethod === 'microsoft' && !b.accountName && (
+      b.status === 'connecting' ||
+      b.status === 'error'
     )) {
       // Show the sign-in panel immediately, even while prismarine-auth is still
       // waiting for Microsoft's device-code response.
