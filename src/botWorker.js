@@ -100,6 +100,7 @@ class BotWorker {
     bot.once('spawn', () => {
       if (this.bot !== bot) return;
       this.spawned = true;
+      this.newAccountSignIn = false;
       this.attempts = 0;
       if (bot.username && bot.username !== this.accountName) {
         this.accountName = bot.username;
@@ -809,6 +810,7 @@ class BotWorker {
       profile: this.profile,
       accountName: this.accountName || this.m.accountNames?.[this.name] || (bot && bot.username ? bot.username : null),
       authMethod: this.authMethod || this.m.connection.auth || 'microsoft',
+      newAccountSignIn: !!this.newAccountSignIn,
       status: this.status,
       detail: this.detail,
       mined: this.stats.mined,
