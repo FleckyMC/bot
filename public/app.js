@@ -5,12 +5,12 @@ let state = null;
 let formsFilled = false;
 let msaModalDismissed = false;
 let lastMsaSignature = '';
-// Fallback for device codes that arrive in the Activity Log before the state snapshot.
-const msaFromLogs = new Map();
 const selectedConnectBots = new Set();
 const inventoryShown = new Set();
 let lastScroll = { x: 0, y: 0 };
 const ITEM_ICONS = { fishing_rod: '🎣', experience_bottle: '🧪', diamond: '💎', emerald: '🟩', iron_ingot: '🔩', gold_ingot: '🪙', coal: '⚫', cooked_cod: '🐟', cod: '🐟', salmon: '🐠', enchanted_book: '📘', bow: '🏹', arrow: '➶', chest: '📦', barrel: '🛢️', bread: '🍞', apple: '🍎', pickaxe: '⛏️' };
+const botNote = (name) => { try { return localStorage.getItem('bot-note:' + name) || ''; } catch { return ''; } };
+const displayBotName = (b) => b.accountName || 'Minecraft profile pending';
 const itemIcon = (name) => ITEM_ICONS[name] || (name.includes('pickaxe') ? '⛏️' : name.includes('sword') ? '⚔️' : name.includes('fish') ? '🐟' : name.includes('ore') ? '🪨' : name.includes('log') ? '🪵' : name.includes('planks') ? '🪵' : name.includes('armor') || name.includes('helmet') ? '🛡️' : name.includes('potion') ? '🧪' : name.includes('wool') ? '🧶' : '📦');
 
 // ------------------------------------------------------------ Hilfen
@@ -122,13 +122,8 @@ function render(s) {
   // snapshot arrives without the msa field (for example during a reconnect).
   const msaByName = new Map();
   for (const b of s.bots) {
-    const logged = msaFromLogs.get(b.name);
-    if (b.msa) msaByName.set(b.name, b);
-    else if (logged) msaByName.set(b.name, { ...b, msa: logged });
-    else if (b.authMethod === 'microsoft' && !b.accountName && (
-      b.status === 'connecting' ||
-      b.status === 'error'
-    )) {
+    if (b.msa && b.msa.code && (!b.msa.expiresAt || b.msa.expiresAt > Date.now())) msaByName.set(b.name, b);
+    else if (b.newAccountSignIn && !b.accountName && b.status !== 'offline') {
       // Show the sign-in panel immediately, even while prismarine-auth is still
       // waiting for Microsoft's device-code response.
       msaByName.set(b.name, {
@@ -136,11 +131,6 @@ function render(s) {
         msa: { code: '', url: 'https://www.microsoft.com/link', pending: true },
       });
     }
-  }
-  // A log event can arrive just before the matching bot appears in a state snapshot.
-  // Render the real device code from that event anyway instead of hiding the sign-in panel.
-  for (const [name, logged] of msaFromLogs) {
-    if (!msaByName.has(name)) msaByName.set(name, { name, accountName: name, msa: logged });
   }
   const msa = [...msaByName.values()];
   const msaSignature = msa.map((b) => `${b.name}:${b.msa.code || (b.msa.pending ? 'pending' : '')}`).join('|');
@@ -197,7 +187,12 @@ function render(s) {
   if (sel.options.length !== want.length || [...sel.options].some((o, i) => o.value !== want[i])) {
     const cur = sel.value;
     sel.replaceChildren();
-    for (const v of want) { const o = el('option', '', v === 'all' ? 'All bots' : v); o.value = v; sel.append(o); }
+    for (const v of want) {
+      const bot = s.bots.find((b) => b.name === v);
+      const note = bot ? botNote(bot.name).trim() : '';
+      const label = v === 'all' ? 'All bots' : `${displayBotName(bot || { name: v })}${note ? ' — ' + note : ''}`;
+      const o = el('option', '', label); o.value = v; sel.append(o);
+    }
     sel.value = want.includes(cur) ? cur : 'all';
   }
 
@@ -218,7 +213,8 @@ function render(s) {
         else selectedConnectBots.delete(b.name);
       });
       const info = el('span', 'connect-bot-info');
-      info.append(el('b', '', b.accountName || 'Minecraft profile pending'), el('small', '', b.pos ? 'Connected to server' : (b.status === 'error' ? (b.detail || 'Authentication error') : (b.detail || b.status))));
+      const note = botNote(b.name).trim();
+      info.append(el('b', '', displayBotName(b) + (note ? ' · ' + note : '')), el('small', '', b.pos ? `Connected · ${state.connection?.host || ''}${state.connection?.port && state.connection.port !== 25565 ? ':' + state.connection.port : ''}` : (b.status === 'error' ? (b.detail || 'Authentication error') : (b.detail || (b.newAccountSignIn ? 'Microsoft sign-in in progress' : b.status)))));
       label.append(checkbox, info);
       choices.append(label);
     }
@@ -227,15 +223,25 @@ function render(s) {
   // Bot-Karten
   const box = $('bots');
   box.replaceChildren();
-  if (!s.bots.length) { box.append(el('p', 'muted', 'No bots connected yet.')); return; }
-  for (const b of s.bots) {
+  const query = ($('botSearch')?.value || '').trim().toLowerCase();
+  const filter = $('botStatusFilter')?.value || 'all';
+  const visibleBots = s.bots.filter((b) => {
+    const connected = !!b.pos;
+    const matchesStatus = filter === 'all' || (filter === 'online' ? connected : !connected);
+    const note = botNote(b.name).toLowerCase();
+    const matchesSearch = !query || displayBotName(b).toLowerCase().includes(query) || note.includes(query);
+    return matchesStatus && matchesSearch;
+  });
+  if (!visibleBots.length) { box.append(el('p', 'muted', s.bots.length ? 'No bots match these filters.' : 'No saved bot accounts yet.')); return; }
+  for (const b of visibleBots) {
     const [label, cls] = STATUS[b.status] || [b.status, ''];
     const card = el('div', 'bot');
-    const top = el('div', 'top');
-    top.append(el('span', 'name', b.accountName || 'Minecraft profile pending'), el('span', 'chip ' + cls, label));
-    card.append(top);
-    const account = el('div', 'detail', b.accountName ? `Minecraft player: ${b.accountName}` : 'Minecraft player: profile not available yet');
-    card.append(account, el('div', 'detail', b.detail || ' '));
+    const details = el('details', 'bot-details');
+    const top = el('summary', 'bot-summary');
+    const server = b.pos ? `${s.connection?.host || 'Server'}${s.connection?.port && s.connection.port !== 25565 ? ':' + s.connection.port : ''}` : 'Disconnected';
+    top.append(el('span', 'name', displayBotName(b)), el('span', 'server-name', server), el('span', 'chip ' + cls, label));
+    details.append(top);
+    if (b.detail && !b.pos) details.append(el('div', 'detail', b.detail));
     const noteKey = 'bot-note:' + b.name;
     const note = el('div', 'detail bot-note');
     const savedNote = (() => { try { return localStorage.getItem(noteKey) || ''; } catch { return ''; } })();
@@ -248,24 +254,25 @@ function render(s) {
       try { if (value.trim()) localStorage.setItem(noteKey, value.trim().slice(0, 300)); else localStorage.removeItem(noteKey); } catch { toast('Could not save note in this browser', true); return; }
       render(state);
     };
-    card.append(note, noteBtn);
+    if (savedNote) details.append(note);
+    details.append(noteBtn);
 
     const kv = (k, v) => { const r = el('div', 'kv'); r.append(el('span', '', k), el('b', '', v)); return r; };
-    card.append(kv('Position', b.pos ? `${b.pos.x} ${b.pos.y} ${b.pos.z}` : '-'));
-    card.append(kv('Health / hunger', b.health != null ? `${Math.round(b.health)} / ${b.food}` : '-'));
-    card.append(kv('Pickaxe', b.pickaxe ? `${b.pickaxe.left ?? '?'} / ${b.pickaxe.max ?? '?'}` : (b.pos ? 'keine' : '-')));
+    details.append(kv('Position', b.pos ? `${b.pos.x} ${b.pos.y} ${b.pos.z}` : '-'));
+    details.append(kv('Health / hunger', b.health != null ? `${Math.round(b.health)} / ${b.food}` : '-'));
+    details.append(kv('Pickaxe', b.pickaxe ? `${b.pickaxe.left ?? '?'} / ${b.pickaxe.max ?? '?'}` : (b.pos ? 'keine' : '-')));
     if (b.pickaxe && b.pickaxe.max) {
       const frac = Math.max(0, Math.min(1, b.pickaxe.left / b.pickaxe.max));
       const bar = el('div', 'bar' + (b.pickaxe.left < (state.settings.durabilityThreshold) ? ' low' : ''));
       const fill = el('i'); fill.style.width = (frac * 100).toFixed(0) + '%';
-      bar.append(fill); card.append(bar);
+      bar.append(fill); details.append(bar);
     }
-    card.append(kv('XP bottles', b.bottles != null ? String(b.bottles) : '-'));
-    card.append(kv('Free slots', b.freeSlots != null ? String(b.freeSlots) : '-'));
-    card.append(kv('Mined', String(b.mined)));
-    if (b.fishCaught != null) card.append(kv('Caught', String(b.fishCaught)));
-    if (b.trades != null) card.append(kv('Trades', String(b.trades))); 
-    card.append(kv('Task', ({ idle: 'None', mining: 'Mining', afk: 'AFK/Präsenz', fishing: 'Angeln', trading: 'Trading' })[b.profile] || b.profile || 'None'));
+    details.append(kv('XP bottles', b.bottles != null ? String(b.bottles) : '-'));
+    details.append(kv('Free slots', b.freeSlots != null ? String(b.freeSlots) : '-'));
+    if (b.hasRegion) details.append(kv('Mined', String(b.mined)));
+    if (b.profile === 'fishing') details.append(kv('Caught', String(b.fishCaught || 0)));
+    if (b.profile === 'trading') details.append(kv('Trades', String(b.trades || 0)));
+    details.append(kv('Task', ({ idle: 'None', mining: 'Mining', afk: 'AFK/Präsenz', fishing: 'Angeln', trading: 'Trading' })[b.profile] || b.profile || 'None'));
     const actions = el('div', 'row wrap');
     const addTask = (label, profile, cls) => {
       const btn = el('button', cls || 'ghost', label);
@@ -300,7 +307,7 @@ function render(s) {
     const invBtn = el('button', 'ghost', inventoryShown.has(b.name) ? 'Hide inventory' : '▦ View inventory');
     invBtn.onclick = () => { if (inventoryShown.has(b.name)) inventoryShown.delete(b.name); else inventoryShown.add(b.name); render(state); };
     actions.append(invBtn);
-    card.append(actions);
+    details.append(actions);
     if (inventoryShown.has(b.name)) {
       const inv = el('div', 'inventory-list');
       const inventory = b.inventory || [];
@@ -320,13 +327,14 @@ function render(s) {
         } else tile.append(el('span', 'item-meta', `Slot ${item.slot}`));
         inv.append(tile);
       }
-      card.append(inv);
+      details.append(inv);
     }
     if (b.hasRegion && b.progress != null) {
-      card.append(kv('Fortschritt', Math.round(b.progress * 100) + ' %'));
+      details.append(kv('Fortschritt', Math.round(b.progress * 100) + ' %'));
       const bar = el('div', 'bar'); const fill = el('i'); fill.style.width = (b.progress * 100).toFixed(0) + '%';
-      bar.append(fill); card.append(bar);
+      bar.append(fill); details.append(bar);
     }
+    card.append(details);
     box.append(card);
   }
   requestAnimationFrame(() => {
@@ -343,16 +351,6 @@ function render(s) {
 const logBox = $('log');
 $('clearLog')?.addEventListener('click', () => { logBox.replaceChildren(); toast('Activity log cleared'); });
 function addLog(e) {
-  const logText = String(e.text || '');
-  const oldCodeMatch = logText.match(/Microsoft-Login:\s*Code\s+(\S+)\s+auf\s+(\S+)/i);
-  const callbackCodeMatch = logText.match(/Microsoft device code received:\s*(\S+);\s*sign in at\s*(\S+)/i);
-  const codeMatch = oldCodeMatch || callbackCodeMatch;
-  if (codeMatch && e.source) {
-    const code = oldCodeMatch ? codeMatch[1] : codeMatch[1];
-    const rawUrl = oldCodeMatch ? codeMatch[2] : codeMatch[2];
-    msaFromLogs.set(e.source, { code, url: /^https:\/\//i.test(rawUrl) ? rawUrl : 'https://www.microsoft.com/link' });
-    if (state) render(state);
-  }
   const stick = logBox.scrollTop + logBox.clientHeight >= logBox.scrollHeight - 24;
   const d = el('div', e.level === 'warn' || e.level === 'error' ? e.level : '');
   d.append(el('span', 't', new Date(e.t).toLocaleTimeString('de-DE') + ' '), el('span', 'src', `[${e.source}] `), document.createTextNode(e.text));
@@ -391,6 +389,8 @@ $('btnConnect').onclick = () => {
   act('connect_selected', { host: $('host').value, names }, 'Connecting selected bots…');
 };
 $('connectBotSearch')?.addEventListener('input', () => { if (state) render(state); });
+$('botSearch')?.addEventListener('input', () => { if (state) render(state); });
+$('botStatusFilter')?.addEventListener('change', () => { if (state) render(state); });
 $('selectAllBots')?.addEventListener('click', () => {
   if (state) state.bots.forEach((b) => selectedConnectBots.add(b.name));
   if (state) render(state);
