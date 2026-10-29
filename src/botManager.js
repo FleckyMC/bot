@@ -45,6 +45,7 @@ class BotManager extends EventEmitter {
       const profileName = this.accountNames[key];
       if (profileName) w.accountName = profileName;
       w.authMethod = 'microsoft';
+      w.newAccountSignIn = false;
       w.wantConnected = false;
       w.status = profileName ? 'offline' : 'error';
       w.detail = profileName
@@ -199,6 +200,7 @@ class BotManager extends EventEmitter {
     w.profileDir = profileDir;
     this.accountProfiles[name] = profileDir;
     w.authMethod = 'microsoft';
+    w.newAccountSignIn = true;
     w.wantConnected = true;
     w.status = 'connecting';
     w.detail = 'Starting Microsoft sign-in';
