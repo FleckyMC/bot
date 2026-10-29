@@ -6,6 +6,7 @@ const DEFAULTS = {
   connection: { host: '', port: 0, auth: 'microsoft' },
   version: 'auto',
   names: [],
+  accountNames: {},
   area: null, // { p1:{x,y,z}, p2:{x,y,z} }
   settings: {
     durabilityThreshold: 300, // unter diesem Wert wird repariert
@@ -33,6 +34,7 @@ function load(file) {
       connection: { ...DEFAULTS.connection, ...(raw.connection || {}) },
       version: raw.version || DEFAULTS.version,
       names: Array.isArray(raw.names) ? raw.names : [],
+      accountNames: raw.accountNames && typeof raw.accountNames === 'object' && !Array.isArray(raw.accountNames) ? raw.accountNames : {},
       area: raw.area || null,
       settings: { ...DEFAULTS.settings, ...(raw.settings || {}) },
     };
