@@ -432,7 +432,7 @@ class BotManager extends EventEmitter {
     if (target && target !== 'all') {
       const w = this.workers.get(target);
       if (!w) throw new Error('Unbekannter Bot');
-      w.chat(t);
+      await w.chat(t);
       return;
     }
     const ready = [...this.workers.values()].filter((w) => w.bot && w.spawned);
@@ -440,7 +440,7 @@ class BotManager extends EventEmitter {
     let sent = 0;
     const errors = [];
     for (const w of ready) {
-      try { w.chat(t); sent++; } catch (e) { errors.push(`${w.accountName || w.name}: ${e.message}`); this.log(w.name, `Chat konnte nicht gesendet werden: ${e.message}`, 'error'); }
+      try { await w.chat(t); sent++; } catch (e) { errors.push(`${w.accountName || w.name}: ${e.message}`); this.log(w.name, `Chat konnte nicht gesendet werden: ${e.message}`, 'error'); }
       await sleep(300); // nicht alle gleichzeitig, sonst Spam-Kick
     }
     if (!sent) throw new Error(errors.join(' | ') || 'Nachricht konnte an keinen verbundenen Bot gesendet werden');
