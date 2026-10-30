@@ -205,10 +205,11 @@ class BotManager extends EventEmitter {
       try {
         const flow = new Authflow(name, profileDir, { flow: 'live', authTitle: Titles.MinecraftJava, deviceType: 'Win32' }, (data) => this.setMsa(name, data));
         const result = await flow.getMinecraftJavaToken({ fetchProfile: true });
-        const profile = result && (result.profile || result);
-        const playerName = profile && (profile.name || profile.username);
+        const profile = result && (result.profile || result.user || result);
+        const playerName = profile && (profile.name || profile.username || profile.gamertag);
         if (!playerName || !/^[A-Za-z0-9_]{3,16}$/.test(String(playerName))) {
-          throw new Error('Microsoft login completed, but no valid Minecraft Java profile was returned. Check that the account owns Minecraft Java Edition.');
+          const returnedFields = result && typeof result === 'object' ? Object.keys(result).filter((key) => !/token|secret|key/i.test(key)).join(', ') : typeof result;
+          throw new Error(`Microsoft authorization finished, but no Minecraft Java profile name was returned (response fields: ${returnedFields || 'none'}). Make sure this Microsoft account owns Minecraft Java Edition.`);
         }
         const worker = new BotWorker(this, name);
         worker.profileDir = profileDir;
