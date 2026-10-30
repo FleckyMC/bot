@@ -231,7 +231,17 @@ class BotManager extends EventEmitter {
       } catch (e) {
         this.pendingAccounts.delete(name);
         this.clearMsa(name);
-        this.log(name, `Microsoft sign-in failed: ${e && e.message ? e.message : e}`, 'error');
+        const parts = [];
+        const seen = new Set();
+        for (let current = e, depth = 0; current && depth < 5; current = current.cause, depth++) {
+          const status = current.statusCode || current.status || (current.response && current.response.status);
+          const body = current.body || current.responseBody || (current.response && (current.response.data || current.response.body));
+          const message = current.message || String(current);
+          const detail = [message, status ? `HTTP ${status}` : '', body && typeof body === 'string' ? body : body && typeof body === 'object' ? JSON.stringify(body) : ''].filter(Boolean).join(' | ');
+          if (detail && !seen.has(detail)) { parts.push(detail); seen.add(detail); }
+        }
+        const diagnostic = parts.join(' <- ').slice(0, 1200) || String(e);
+        this.log(name, `Microsoft sign-in failed after device approval: ${diagnostic}`, 'error');
         this.touch();
       }
     })();
