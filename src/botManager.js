@@ -203,9 +203,8 @@ class BotManager extends EventEmitter {
 
     (async () => {
       try {
-        // Live flow requires an explicit authTitle. Use Minecraft Java's official title;
-        // leave deviceType at the library default to avoid overriding client identification.
-        const flow = new Authflow(name, profileDir, { flow: 'live', authTitle: Titles.MinecraftJava }, (data) => this.setMsa(name, data));
+        // Sisu uses the Minecraft Java title with its matching Windows device type.
+        const flow = new Authflow(name, profileDir, { flow: 'sisu', authTitle: Titles.MinecraftJava, deviceType: 'Win32' }, (data) => this.setMsa(name, data));
         const result = await flow.getMinecraftJavaToken({ fetchProfile: true });
         const profile = result && (result.profile || result.user || result);
         const playerName = profile && (profile.name || profile.username || profile.gamertag);
