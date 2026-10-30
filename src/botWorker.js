@@ -90,7 +90,8 @@ class BotWorker {
         onMsaCode: (data) => m.setMsa(this.name, data),
         viewDistance: 'short',
         checkTimeoutInterval: 60000,
-        hideErrors: true,
+        // Diagnose protocol/server errors instead of silently hiding them.
+        hideErrors: false,
       });
     } catch (e) {
       m.log(this.name, `Start fehlgeschlagen: ${e.message}`, 'error');
@@ -98,6 +99,7 @@ class BotWorker {
       return;
     }
     this.bot = bot;
+    this.setupProtocolDiagnostics(bot);
     // Keep Mineflayer's normal server-authoritative player physics enabled.
     // Knockback/velocity comes from the Minecraft server; don't pin the entity in place.
     bot.physicsEnabled = true;
@@ -186,6 +188,49 @@ class BotWorker {
     bot.pathfinder.thinkTimeout = 8000;
   }
 
+
+  setupProtocolDiagnostics(bot) {
+    const client = bot && bot._client;
+    if (!client || client.__chatDiagnosticsInstalled) return;
+    client.__chatDiagnosticsInstalled = true;
+
+    // Observe outgoing chat packets without changing their contents or timing.
+    if (typeof client.write === 'function') {
+      const originalWrite = client.write;
+      client.write = function (name, params, ...rest) {
+        if (/^(chat|chat_command|chat_message|chat_session_update|chat_ack|message_acknowledgement)/i.test(String(name))) {
+          const detail = {};
+          if (params && typeof params === 'object') {
+            for (const key of ['message', 'command', 'timestamp', 'salt', 'offset']) {
+              if (params[key] !== undefined) detail[key] = params[key];
+            }
+          }
+          try {
+            bot.emit('chat:protocol_out', { packet: String(name), detail });
+          } catch { /* Diagnose darf das Senden nicht beeinflussen */ }
+        }
+        return originalWrite.call(this, name, params, ...rest);
+      };
+    }
+
+    client.on('packet', (data, meta) => {
+      const packet = String(meta && meta.name || '');
+      if (/chat|message|disconnect|server_data/i.test(packet)) {
+        // Do not dump signatures, encryption material, or arbitrary plugin payloads.
+        const detail = {};
+        if (data && typeof data === 'object') {
+          for (const key of ['message', 'content', 'overlay', 'reason', 'type']) {
+            if (data[key] !== undefined) detail[key] = data[key];
+          }
+        }
+        this.m.log(this.name, `Eingehendes Protokollpaket: ${packet} ${JSON.stringify(detail).slice(0, 500)}`, 'info');
+      }
+    });
+
+    bot.on('chat:protocol_out', ({ packet, detail }) => {
+      this.m.log(this.name, `Ausgehendes Chat-Protokollpaket: ${packet} ${JSON.stringify(detail).slice(0, 300)}`, 'info');
+    });
+  }
 
   setupAutomation(bot) {
     bot.on('physicsTick', async () => {
@@ -820,9 +865,14 @@ class BotWorker {
       if (!this.bot || !this.spawned || !this.bot.entity) {
         throw new Error(`${this.accountName || this.name} wurde vor dem Senden getrennt`);
       }
-      this.bot.chat(message);
-      this.lastChatAt = Date.now();
-      this.m.log(this.name, `Chat an Minecraft-Client übergeben: ${message}`, 'chat');
+      try {
+        this.bot.chat(message);
+        this.lastChatAt = Date.now();
+        this.m.log(this.name, `Chat-Sendeaufruf ausgeführt: ${message}`, 'chat');
+      } catch (e) {
+        this.m.log(this.name, `Chat-Senden fehlgeschlagen: ${e && e.stack ? e.stack : e}`, 'error');
+        throw e;
+      }
     });
     this.chatQueue = task;
     return task;
