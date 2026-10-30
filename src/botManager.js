@@ -203,7 +203,7 @@ class BotManager extends EventEmitter {
 
     (async () => {
       try {
-        const flow = new Authflow(name, profileDir, { flow: 'live', authTitle: Titles.MinecraftJava }, (data) => this.setMsa(name, data));
+        const flow = new Authflow(name, profileDir, { flow: 'live', authTitle: Titles.MinecraftJava, deviceType: 'Win32' }, (data) => this.setMsa(name, data));
         const result = await flow.getMinecraftJavaToken({ fetchProfile: true });
         const profile = result && (result.profile || result);
         const playerName = profile && (profile.name || profile.username);
