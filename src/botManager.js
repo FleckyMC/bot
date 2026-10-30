@@ -203,7 +203,10 @@ class BotManager extends EventEmitter {
 
     (async () => {
       try {
-        const flow = new Authflow(name, profileDir, { flow: 'live', authTitle: Titles.MinecraftJava, deviceType: 'Win32' }, (data) => this.setMsa(name, data));
+        // Match Mineflayer's normal Microsoft login flow. Explicitly forcing Titles.MinecraftJava
+        // triggers a 403 in prismarine-auth 3.1.1 for some otherwise valid Java accounts;
+        // the library's default live title is the supported Minecraft client title.
+        const flow = new Authflow(name, profileDir, { flow: 'live' }, (data) => this.setMsa(name, data));
         const result = await flow.getMinecraftJavaToken({ fetchProfile: true });
         const profile = result && (result.profile || result.user || result);
         const playerName = profile && (profile.name || profile.username || profile.gamertag);
