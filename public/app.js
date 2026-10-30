@@ -340,7 +340,7 @@ function render(s) {
 // ------------------------------------------------------------ Log
 
 const logBox = $('log');
-$('clearLog')?.addEventListener('click', () => { logBox.replaceChildren(); toast('Activity log cleared'); });
+$('clearLog')?.addEventListener('click', () => act('clear_logs', {}, 'Activity log cleared'));
 function addLog(e) {
   const stick = logBox.scrollTop + logBox.clientHeight >= logBox.scrollHeight - 24;
   const d = el('div', e.level === 'warn' || e.level === 'error' ? e.level : '');
@@ -364,6 +364,7 @@ socket.on('init', ({ state: s, logs }) => {
 });
 socket.on('state', render);
 socket.on('log', addLog);
+socket.on('logs_cleared', () => logBox.replaceChildren());
 socket.on('connect_error', (e) => {
   if (e && e.message === 'unauthorized') location.href = '/login';
   else toast('Dashboard connection interrupted', true);
