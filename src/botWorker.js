@@ -49,6 +49,9 @@ class BotWorker {
     this.stats = { mined: 0, bottles: 0 };
     this.autoEatBusy = false;
     this.lastAutomationAt = 0;
+    // Per-bot chat throttling helps avoid silent drops on servers with anti-spam limits.
+    this.lastChatAt = 0;
+    this.chatQueue = Promise.resolve();
     this.profile = 'idle';
     this.profileOptions = {};
     this.resetCursor();
@@ -802,11 +805,27 @@ class BotWorker {
   // ---------------------------------------------------------------- Chat / Status
 
   chat(text) {
-    if (!this.bot || !this.spawned || !this.bot.entity) throw new Error(`${this.accountName || this.name} ist nicht verbunden oder noch nicht gespawnt`);
     const message = String(text || '').trim();
     if (!message) throw new Error('Leere Nachricht');
-    this.bot.chat(message);
-    this.m.log(this.name, `Chat gesendet: ${message}`, 'chat');
+    if (message.length > 256) throw new Error('Maximal 256 Zeichen');
+
+    // Serialize outgoing chat per bot and leave enough time between messages.
+    // Some servers silently discard rapid messages/commands as anti-spam.
+    const task = this.chatQueue.catch(() => {}).then(async () => {
+      if (!this.bot || !this.spawned || !this.bot.entity) {
+        throw new Error(`${this.accountName || this.name} ist nicht verbunden oder noch nicht gespawnt`);
+      }
+      const waitMs = Math.max(0, 1500 - (Date.now() - this.lastChatAt));
+      if (waitMs) await sleep(waitMs);
+      if (!this.bot || !this.spawned || !this.bot.entity) {
+        throw new Error(`${this.accountName || this.name} wurde vor dem Senden getrennt`);
+      }
+      this.bot.chat(message);
+      this.lastChatAt = Date.now();
+      this.m.log(this.name, `Chat an Minecraft-Client übergeben: ${message}`, 'chat');
+    });
+    this.chatQueue = task;
+    return task;
   }
 
   snapshot() {
