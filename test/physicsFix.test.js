@@ -51,6 +51,7 @@ assert.strictEqual(usesLpVelocity(makeBot('1.20.4')), false, '1.20.4 nutzt altes
   // --- Mit Fix
   const fixed = makeBot();
   installPhysicsFixes(fixed);
+  fixed.emit('inject_allowed');
   fixed._client.emit('entity_velocity', { entityId: 1, velocity: knock });
   near(fixed.entity.velocity.x, 0.4);
   near(fixed.entity.velocity.y, 0.36);
@@ -61,6 +62,7 @@ assert.strictEqual(usesLpVelocity(makeBot('1.20.4')), false, '1.20.4 nutzt altes
 {
   const bot = makeBot('1.20.4');
   installPhysicsFixes(bot);
+  bot.emit('inject_allowed');
   bot._client.emit('entity_velocity', { entityId: 1, velocity: { x: 3200, y: 2880, z: 0 } });
   near(bot.entity.velocity.x, 0.4);
   near(bot.entity.velocity.y, 0.36);
@@ -98,4 +100,34 @@ assert.strictEqual(usesLpVelocity(makeBot('1.20.4')), false, '1.20.4 nutzt altes
   assert.strictEqual(applyEntityPush(makeBot()), 0);
 }
 
-console.log('physicsFix.test.js: OK');
+// --- Integration mit ECHTEM Mineflayer: Reihenfolge der Listener (inject_allowed) ist entscheidend
+(async () => {
+  const mineflayer = require('mineflayer');
+  
+  const client = new EventEmitter();
+  client.version = '1.21.11';
+  client.state = 'play';
+  client.write = () => {};
+  client.end = () => {};
+  client.registerChannel = () => {};
+  const bot = mineflayer.createBot({ client, username: 'Test', version: '1.21.11', hideErrors: true });
+  bot.on('error', () => {});
+  const logs = [];
+  installPhysicsFixes(bot, (m) => logs.push(m)); // genau wie in botWorker.js: direkt nach createBot
+  await new Promise((r) => setTimeout(r, 50)); // inject_allowed + Plugin-Injektion abwarten
+
+  assert.ok(logs.some((l) => l.includes('Physik-Fix aktiv')), 'Fix muss nach Plugin-Start aktiv werden');
+  const Entity = require('prismarine-entity')(bot.registry);
+  const e = new Entity(7);
+  bot.entities[7] = e;
+  bot.entity = e;
+  const knock = roundTrip({ x: 0.4, y: 0.36, z: -0.25 }).value;
+  client.emit('entity_velocity', { entityId: 7, velocity: knock });
+  near(e.velocity.x, 0.4);
+  near(e.velocity.y, 0.36);
+  near(e.velocity.z, -0.25);
+  assert.ok(logs.some((l) => l.startsWith('Knockback empfangen')), 'erster Treffer wird geloggt');
+
+  console.log('physicsFix.test.js: OK');
+  process.exit(0);
+})().catch((err) => { console.error(err); process.exit(1); });

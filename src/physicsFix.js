@@ -92,22 +92,35 @@ function applyEntityPush(bot) {
 }
 
 function installPhysicsFixes(bot, log = () => {}, options = {}) {
-  const client = bot && bot._client;
-  if (!client || bot.__physicsFixInstalled) return;
+  if (!bot || bot.__physicsFixInstalled) return;
   bot.__physicsFixInstalled = true;
 
-  if (usesLpVelocity(bot)) {
-    // Muss NACH Mineflayers eigenen Listenern laufen (die wurden bereits in createBot registriert).
+  // Mineflayer injiziert seine Plugins (und damit seine eigenen entity_velocity/spawn_entity-Handler)
+  // erst nach `createBot()`, bei 'inject_allowed'. Erst dann gibt es auch bot.registry.
+  // Unsere Listener muessen NACH denen von Mineflayer registriert werden, sonst ueberschreibt
+  // Mineflayer unseren Wert wieder mit dem falschen (/8000) Wert.
+  const installVelocityFix = () => {
+    const client = bot._client;
+    if (!client || !usesLpVelocity(bot)) return;
+    let loggedFirstHit = false;
     client.on('entity_velocity', (packet) => {
       if (!packet) return;
-      setVelocity(bot.entities[packet.entityId], packet.velocity);
+      const entity = bot.entities[packet.entityId];
+      setVelocity(entity, packet.velocity);
+      if (!loggedFirstHit && bot.entity && packet.entityId === bot.entity.id) {
+        loggedFirstHit = true;
+        const v = packet.velocity || {};
+        log(`Knockback empfangen: vx=${(+v.x).toFixed(3)} vy=${(+v.y).toFixed(3)} vz=${(+v.z).toFixed(3)} (Bloecke/Tick)`, 'info');
+      }
     });
     client.on('spawn_entity', (packet) => {
       if (!packet || !packet.velocity) return;
       setVelocity(bot.entities[packet.entityId], packet.velocity);
     });
     log('Physik-Fix aktiv: Knockback nutzt lpVec3-Velocity (Bloecke/Tick)', 'info');
-  }
+  };
+  // plugin_loader registriert sein 'inject_allowed' vor uns -> unser Handler laeuft nach den Plugins.
+  bot.once('inject_allowed', installVelocityFix);
 
   if (options.entityPush !== false) {
     bot.on('physicsTick', () => {
