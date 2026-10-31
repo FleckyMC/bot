@@ -827,9 +827,16 @@ class BotWorker {
         throw new Error(`${this.accountName || this.name} wurde vor dem Senden getrennt`);
       }
       try {
-        this.bot.chat(message);
+        const bot = this.bot;
+        const isCommand = message.startsWith('/');
+        // Ab 1.19.3 signiert der Client Chat mit dem Profilschluessel der Sitzung. Fehlt er
+        // (z.B. Zertifikate nicht geladen), geht die Nachricht unsigniert raus - Server mit
+        // erzwungener sicherer Chat-Signatur verwerfen sie dann.
+        const signed = !!(bot._client && bot._client.profileKeys && bot._client._session);
+        bot.chat(message);
         this.lastChatAt = Date.now();
-        this.m.log(this.name, `Chat-Sendeaufruf ausgeführt: ${message}`, 'chat');
+        this.m.log(this.name, `Chat-Sendeaufruf ausgeführt (${isCommand ? 'Befehl' : 'Chat'}, ${signed ? 'signiert' : 'UNSIGNIERT'}): ${message}`, 'chat');
+        if (!isCommand) this.watchChatEcho(bot, message);
       } catch (e) {
         this.m.log(this.name, `Chat-Senden fehlgeschlagen: ${e && e.stack ? e.stack : e}`, 'error');
         throw e;
@@ -837,6 +844,24 @@ class BotWorker {
     });
     this.chatQueue = task;
     return task;
+  }
+
+  // Prueft, ob der Server die eigene Chat-Nachricht zurueckspielt. Kommt nichts zurueck, wurde sie
+  // vermutlich verworfen/blockiert (Meldungen des Servers dazu stehen im Aktivitaetslog).
+  watchChatEcho(bot, message) {
+    const needle = message.toLowerCase();
+    let timer = null;
+    const onMessage = (text) => {
+      if (!String(text || '').toLowerCase().includes(needle)) return;
+      clearTimeout(timer);
+      bot.removeListener('messagestr', onMessage);
+      this.m.log(this.name, 'Server hat die Chat-Nachricht zurückgespielt (angekommen)', 'info');
+    };
+    timer = setTimeout(() => {
+      bot.removeListener('messagestr', onMessage);
+      this.m.log(this.name, 'Keine Rückmeldung des Servers auf die Chat-Nachricht innerhalb von 5 s – vermutlich verworfen oder blockiert', 'warn');
+    }, 5000);
+    bot.on('messagestr', onMessage);
   }
 
   snapshot() {
