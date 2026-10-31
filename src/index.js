@@ -135,6 +135,8 @@ const actions = {
   bot_profile: (p) => manager.setBotProfile(p && p.name, p && p.profile, p && p.options || {}),
   add_bot: (p) => manager.addBot(p || {}),
   remove_bot: (p) => manager.removeBot(p && p.name),
+  set_bot_death: (p) => manager.setBotDeathSettings(p && p.name, p && p.death),
+  test_death_webhook: (p) => manager.testDeathWebhook(p && p.name),
   clear_logs: () => { manager.logs.length = 0; for (const client of io.sockets.sockets.values()) client.emit('logs_cleared'); },
 };
 
@@ -145,7 +147,7 @@ const owned = (name, user) => {
   const profileName = worker && worker.accountName || manager.accountNames[name];
   return assigned.has(String(name).toLowerCase()) || (!!profileName && assigned.has(String(profileName).toLowerCase()));
 };
-const snapshotFor = (user) => { const snap=manager.snapshot(); if (isAdmin(user)) return snap; snap.bots=snap.bots.filter(b=>owned(b.name,user)); snap.names=snap.bots.map(b=>b.name); snap.pendingSignIns=[]; return {...snap,connection:null,area:null,settings:{},mining:false}; };
+const snapshotFor = (user) => { const snap=manager.snapshot(); snap.isAdmin=isAdmin(user); if (isAdmin(user)) return snap; snap.bots=snap.bots.filter(b=>owned(b.name,user)); snap.names=snap.bots.map(b=>b.name); snap.pendingSignIns=[]; return {...snap,connection:null,area:null,settings:{},mining:false}; };
 io.on('connection', (socket) => {
   const originalUser = () => userForSocket(socket);
   const currentUser = () => { const original=originalUser(); const target=viewAsBySocket.get(socket.id); return isAdmin(original)&&target ? auth.getUsers().find(u=>u.id===target) || original : original; };

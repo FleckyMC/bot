@@ -8,6 +8,7 @@ const DEFAULTS = {
   names: [],
   accountNames: {},
   accountProfiles: {},
+  botSettings: {}, // pro Bot: { death: { commandEnabled, command, delaySec, webhookEnabled, webhookUrl } }
   area: null, // { p1:{x,y,z}, p2:{x,y,z} }
   settings: {
     durabilityThreshold: 300, // unter diesem Wert wird repariert
@@ -37,6 +38,7 @@ function load(file) {
       names: Array.isArray(raw.names) ? raw.names : [],
       accountNames: raw.accountNames && typeof raw.accountNames === 'object' && !Array.isArray(raw.accountNames) ? raw.accountNames : {},
       accountProfiles: raw.accountProfiles && typeof raw.accountProfiles === 'object' && !Array.isArray(raw.accountProfiles) ? raw.accountProfiles : {},
+      botSettings: raw.botSettings && typeof raw.botSettings === 'object' && !Array.isArray(raw.botSettings) ? raw.botSettings : {},
       area: raw.area || null,
       settings: { ...DEFAULTS.settings, ...(raw.settings || {}) },
     };

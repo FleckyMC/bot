@@ -86,7 +86,9 @@ Das Dashboard steuert Accounts, die sich auf einem Server einloggen. Es ist durc
 - Die Bots laufen als reine Programme ohne Minecraft-Fenster. Pro Bot rechne mit etwa 50–100 MB RAM.
 - Minecraft-Version: Standardmäßig wird die Serverversion automatisch erkannt. Alternativ kannst du eine konkrete Versionsnummer eintragen. Die tatsächlich unterstützten Versionen hängen von Mineflayer/minecraft-protocol ab; kein Client kann ohne passende Protokollunterstützung garantiert jede jemals erschienene Version bedienen.
 - Viele Server begrenzen schnelle Logins; die Bots verbinden sich deshalb gestaffelt (5 s Abstand im Offline-Modus).
-- Auto Eat ist standardmäßig aktiv. Bei langen Läufen passendes Essen im Inventar bereitstellen; Auto Eat lässt sich in den Einstellungen abschalten.
+- **Auto Eat** ist eine eigenständige Funktion mit eigenem Panel und eigenem Speichern-Knopf. Sie läuft für jeden verbundenen Bot unabhängig von Aufgaben und Drop-Items, ist standardmäßig aktiv und isst nie Kugelfisch, faules Fleisch, rohes Hühnchen, Spinnenaugen, giftige Kartoffeln, Chorusfrüchte, verdächtigen Eintopf oder goldene Äpfel.
+- **Tod und Respawn:** Stirbt ein Bot, pausiert seine Aufgabe und läuft nach dem Respawn automatisch weiter. Kommt vom Server nach dem Respawn keine Position, schaltet das Dashboard die Physik nach 6 s selbst wieder ein.
+- **Todes-Einstellungen pro Bot** (Admin, Knopf „☠ Death settings“ an der Bot-Karte): ein Befehl, der nach dem Respawn gesendet wird (mit Wartezeit), und ein Webhook mit Minecraft-Name, Todesursache, Server, Position, Dimension und Aufgabe. Die Webhook-URL (nur https, keine lokalen Adressen) liegt in `data/config.json` und wird dem Browser nie wieder angezeigt.
 - Wegfindung kann an komplizierten Stellen hängen bleiben; dann überspringt der Bot den Block nach zwei Versuchen.
 - Erreicht ein Bot einen Block nicht (z. B. Bereich unter einer Erdschicht), meldet er das statt still zu stehen.
 

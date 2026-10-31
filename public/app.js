@@ -299,6 +299,12 @@ function render(s) {
     const invBtn = el('button', 'ghost', inventoryShown.has(b.name) ? 'Hide inventory' : '▦ View inventory');
     invBtn.onclick = () => { if (inventoryShown.has(b.name)) inventoryShown.delete(b.name); else inventoryShown.add(b.name); render(state); };
     actions.append(invBtn);
+    if (state.isAdmin) {
+      const deathBtn = el('button', 'ghost', '☠ Death settings');
+      deathBtn.type = 'button';
+      deathBtn.onclick = () => openDeathDialog(b);
+      actions.append(deathBtn);
+    }
     details.append(actions);
     if (inventoryShown.has(b.name)) {
       const inv = el('div', 'inventory-list');
@@ -420,8 +426,6 @@ $('btnSettings').onclick = () => {
     fishingThreshold: num('fishThreshold'),
     fishingUseMending: $('fishMending').checked,
     fishingDeposit: $('fishDeposit').checked,
-    autoEat: $('autoEat').checked,
-    autoEatThreshold: num('autoEatThreshold'),
     dropItems: $('dropItems').value.split(',').map(x => x.trim().toLowerCase().replace(/^minecraft:/, '')).filter(Boolean),
     avoidLiquid: $('sLiquid').checked,
     allowDigOutside: $('sOutside').checked,
@@ -429,6 +433,57 @@ $('btnSettings').onclick = () => {
     chest: all ? { x: c[0], y: c[1], z: c[2] } : null,
   }, 'Settings saved');
 };
+
+$('btnAutoEat')?.addEventListener('click', () => {
+  const threshold = num('autoEatThreshold');
+  if (Number.isNaN(threshold)) return toast('Please enter a hunger threshold between 1 and 20', true);
+  act('set_settings', { autoEat: $('autoEat').checked, autoEatThreshold: threshold }, 'Auto Eat saved');
+});
+
+// ------------------------------------------------------------ Todes-Einstellungen (pro Bot)
+
+let deathBot = null;
+function openDeathDialog(bot) {
+  deathBot = bot.name;
+  const d = bot.death || {};
+  $('deathTitle').textContent = `Death settings · ${displayBotName(bot)}`;
+  $('deathCmdOn').checked = !!d.commandEnabled;
+  $('deathCmd').value = d.command || '';
+  $('deathDelay').value = d.delaySec ?? 3;
+  $('deathHookOn').checked = !!d.webhookEnabled;
+  $('deathHook').value = '';
+  $('deathHookClear').checked = false;
+  $('deathHookHint').textContent = d.hasWebhook
+    ? `Saved webhook: ${d.webhookHint}. Leave empty to keep it, or enter a new URL to replace it.`
+    : 'No webhook saved yet. The URL is stored on the server and never shown again.';
+  $('deathTest').disabled = !d.hasWebhook;
+  $('deathDialog').showModal();
+}
+$('deathClose')?.addEventListener('click', () => $('deathDialog').close());
+$('deathForm')?.addEventListener('submit', (e) => { e.preventDefault(); $('deathSave').click(); });
+$('deathSave')?.addEventListener('click', () => {
+  if (!deathBot) return;
+  const delay = Number($('deathDelay').value);
+  if (!Number.isInteger(delay) || delay < 0 || delay > 120) return toast('Wait time must be a whole number between 0 and 120', true);
+  const death = {
+    commandEnabled: $('deathCmdOn').checked,
+    command: $('deathCmd').value.trim(),
+    delaySec: delay,
+    webhookEnabled: $('deathHookOn').checked,
+    clearWebhook: $('deathHookClear').checked,
+  };
+  const url = $('deathHook').value.trim();
+  if (url) death.webhookUrl = url;
+  socket.emit('action', 'set_bot_death', { name: deathBot, death }, (res) => {
+    if (!res || !res.ok) return toast((res && res.error) || 'Could not save', true);
+    toast('Death settings saved');
+    $('deathDialog').close();
+  });
+});
+$('deathTest')?.addEventListener('click', () => {
+  if (!deathBot) return;
+  act('test_death_webhook', { name: deathBot }, 'Test webhook sent');
+});
 
 function sendChat() {
   const text = $('chatText').value;

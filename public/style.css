@@ -58,3 +58,7 @@ body:has(#msaCard:not([hidden])):after{content:"";position:fixed;inset:0;z-index
 #bots .bot-summary .server-name{max-width:42%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #bots .bot-summary .chip.err{color:#fff}
 #accountPanel select[multiple]{display:none}
+
+.death-dialog{width:min(92vw,520px);padding:20px;border:1px solid var(--line);border-radius:16px;background:var(--surface);color:var(--text);box-shadow:var(--shadow)}
+.death-dialog::backdrop{background:rgba(5,9,18,.6)}
+.death-dialog .form-grid{display:grid;gap:14px}

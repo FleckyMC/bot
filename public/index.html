@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light"><title>Bot Control · Minecraft</title>
-  <link rel="stylesheet" href="/style.css?v=chat-log-3">
+  <link rel="stylesheet" href="/style.css?v=death-1">
 </head>
 <body>
 <header class="app-header"><div class="brand-mark">⛏</div><div class="brand"><h1>Bot Control</h1><p>Minecraft · Management & Automation</p></div><span id="conn" class="chip off">0/0 online</span><span class="spacer"></span><form method="post" action="/logout"><button class="ghost" type="submit">Log out ↗</button></form></header>
@@ -28,12 +28,16 @@
     <div class="form-grid three"><label>Repair below<input id="sThreshold" type="number" min="1" max="2500"><span class="hint">Pickaxe remaining durability</span></label><label>Delay per XP bottle<input id="sDelay" type="number" min="250" max="3000" step="50"><span class="hint">Milliseconds</span></label><label>Minimum free slots<input id="sFree" type="number" min="0" max="20"><span class="hint">Before depositing</span></label></div>
     <div class="coords"><span class="coord-label">Storage chest</span><input id="cx" type="number" placeholder="X" aria-label="Kiste X"><input id="cy" type="number" placeholder="Y" aria-label="Kiste Y"><input id="cz" type="number" placeholder="Z" aria-label="Kiste Z"></div>
     <label class="check"><input id="sLiquid" type="checkbox"> Avoid blocks next to water/lava</label><label class="check"><input id="sOutside" type="checkbox"> Allow digging outside the area (may mine extra blocks)</label><label>Excluded blocks<input id="sExcluded" placeholder="bedrock, chest, barrel"><span class="hint">Comma-separated block IDs</span></label>
-    <label class="check"><input id="autoEat" type="checkbox" checked> Auto Eat enabled</label><label>Auto Eat hunger threshold<input id="autoEatThreshold" type="number" min="1" max="20" value="14"><span class="hint">Eat when hunger is below this value</span></label><label>Items to drop automatically<input id="dropItems" placeholder="cobblestone, dirt, netherrack"><span class="hint">Comma-separated item IDs; empty means disabled</span></label>
+    <label>Items to drop automatically<input id="dropItems" placeholder="cobblestone, dirt, netherrack"><span class="hint">Comma-separated item IDs; empty means disabled</span></label>
     <div class="toolbar"><button id="btnSettings" class="primary">Save settings</button><span class="muted small">The chest stores mined items and XP bottles.</span></div>
   </section>
   <section class="panel fishing-panel" id="fishingPanel"><div class="section-heading"><div><p class="eyebrow">TASK PROFILE</p><h2>Auto fishing</h2></div><span class="step">04</span></div><p class="muted">These settings apply when you start fishing on a bot.</p>
     <div class="form-grid three"><label>Fishing rod threshold<input id="fishThreshold" type="number" min="1" max="64" value="20"><span class="hint">Remaining durability</span></label><label class="check toggle-label"><input id="fishMending" type="checkbox" checked> Repair Mending with XP bottles</label><label class="check toggle-label"><input id="fishDeposit" type="checkbox" checked> Deposit catch when inventory is full</label></div>
     <p class="hint">Configure the storage chest above. XP bottles repair the rod only if the bot actually collects the XP. Without Mending, a replacement rod is sought when durability is low.</p>
+  </section>
+  <section class="panel" id="autoEatPanel"><div class="section-heading"><div><p class="eyebrow">STANDALONE</p><h2>Auto Eat</h2></div><span class="step">05</span></div><p class="muted">Runs on its own for every connected bot, independent of mining, fishing or other tasks.</p>
+    <label class="check"><input id="autoEat" type="checkbox" checked> Auto Eat enabled</label><label>Hunger threshold<input id="autoEatThreshold" type="number" min="1" max="20" value="14"><span class="hint">Eat when hunger is below this value. Pufferfish, rotten flesh, raw chicken, spider eyes, poisonous potatoes, chorus fruit, suspicious stew and golden apples are never eaten automatically.</span></label>
+    <div class="toolbar"><button id="btnAutoEat" class="primary">Save Auto Eat</button></div>
   </section>
   <section class="panel wide" id="botsPanel"><div class="section-heading"><div><p class="eyebrow">LIVE STATUS</p><h2>My Bots</h2></div><span class="hint">Live updates</span></div><div class="toolbar"><select id="botStatusFilter" aria-label="Filter bots"><option value="all">All bots</option><option value="online">Online</option><option value="offline">Offline</option></select><input id="botSearch" class="compact" placeholder="Search bots…" aria-label="Search bots"></div><div id="bots" class="bots"><div class="empty-state">No bots connected yet. Connect a bot above to manage it here.</div></div></section>
   <section class="panel" id="chatPanel"><div class="section-heading"><div><p class="eyebrow">COMMUNICATION</p><h2>Chat & Commands</h2></div></div><div class="toolbar"><select id="chatTarget"><option value="all">All bots</option></select><input id="chatText" class="grow" placeholder="Message or /command…" maxlength="256" autocomplete="off"><button id="btnChat" class="primary">Send</button></div><p class="hint">Commands start with /; other text is sent as a chat message.</p></section>
@@ -60,4 +64,17 @@
     </form>
     <p id="accountMessage" class="hint" role="status"></p>
   </section>
-</main><div id="toast" class="toast" hidden></div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=chat-log-3"></script><script src="/accounts.js?v=chat-log-3"></script></body></html>
+</main><dialog id="deathDialog" class="death-dialog" aria-labelledby="deathTitle">
+  <form method="dialog" id="deathForm" class="form-grid">
+    <div class="section-heading"><div><p class="eyebrow">PER BOT</p><h2 id="deathTitle">Death settings</h2></div><button class="ghost" id="deathClose" type="button" aria-label="Close">✕</button></div>
+    <label class="check"><input id="deathCmdOn" type="checkbox"> Run a command after respawning</label>
+    <label>Command<input id="deathCmd" maxlength="256" placeholder="/home" autocomplete="off" spellcheck="false"><span class="hint">Sent as chat/command once the bot has respawned.</span></label>
+    <label>Wait before sending (seconds)<input id="deathDelay" type="number" min="0" max="120" value="3"></label>
+    <label class="check"><input id="deathHookOn" type="checkbox"> Send a webhook when the bot dies</label>
+    <label>Webhook URL<input id="deathHook" type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false"><span class="hint" id="deathHookHint">The URL is stored on the server and never shown again. Leave empty to keep the saved one.</span></label>
+    <label class="check"><input id="deathHookClear" type="checkbox"> Remove the saved webhook URL</label>
+    <p class="hint">The message contains the Minecraft name, the cause of death, server, position, dimension and current task.</p>
+    <div class="toolbar"><button class="primary" id="deathSave" type="button">Save</button><button class="ghost" id="deathTest" type="button">Send test webhook</button></div>
+  </form>
+</dialog>
+<div id="toast" class="toast" hidden></div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=death-1"></script><script src="/accounts.js?v=death-1"></script></body></html>

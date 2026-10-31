@@ -6,6 +6,8 @@ const { Vec3 } = require('vec3');
 const { inside } = require('./planner');
 const { installPhysicsFixes } = require('./physicsFix');
 const { getPhysicsPlugin } = require('./tickEndPhysics');
+const { startAutoEat } = require('./autoEat');
+const { extractDeathCause, buildDeathPayload, sendWebhook, publicDeathSettings } = require('./deathNotify');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -49,8 +51,11 @@ class BotWorker {
     this.job = null;
     this.jobPromise = Promise.resolve();
     this.stats = { mined: 0, bottles: 0 };
-    this.autoEatBusy = false;
+    this.dropBusy = false;
     this.lastAutomationAt = 0;
+    // Nach einem Tod: Aufgabe zum Fortsetzen und Befehl, der nach dem Respawn laufen soll.
+    this.resume = null;
+    this.pendingDeathCommand = null;
     // Per-bot chat throttling helps avoid silent drops on servers with anti-spam limits.
     this.lastChatAt = 0;
     this.chatQueue = Promise.resolve();
@@ -110,7 +115,14 @@ class BotWorker {
       enabled: () => this.m.settings.entityPush !== false,
     });
     bot.loadPlugin(pathfinder);
-    this.setupAutomation(bot);
+    this.setupDropItems(bot);
+    // Auto Eat laeuft eigenstaendig (eigener Timer), unabhaengig von Aufgaben und Drop-Items.
+    this.autoEat = startAutoEat(bot, {
+      getSettings: () => this.m.settings,
+      canRun: () => this.bot === bot && this.spawned && !['repairing', 'depositing'].includes(this.status),
+      log: (text, level) => m.log(this.name, text, level),
+    });
+    this.setupLifecycle(bot);
 
     bot.once('spawn', () => {
       if (this.bot !== bot) return;
@@ -135,8 +147,6 @@ class BotWorker {
       m.log(this.name, msg, 'chat');
     });
 
-    bot.on('death', () => m.log(this.name, 'Bot ist gestorben und respawnt', 'warn'));
-
     bot.on('kicked', (reason) => {
       let text = typeof reason === 'string' ? reason : JSON.stringify(reason);
       try {
@@ -152,6 +162,8 @@ class BotWorker {
       if (this.bot !== bot) return;
       this.bot = null;
       this.spawned = false;
+      this.resume = null;
+      this.pendingDeathCommand = null;
       this.cancelJob();
       m.log(this.name, `Verbindung getrennt (${reason || 'unbekannt'})`, 'warn');
       if (!this.wantConnected) { this.setStatus('offline'); return; }
@@ -171,10 +183,13 @@ class BotWorker {
   disconnect() {
     this.wantConnected = false;
     clearTimeout(this.reconnectTimer);
+    this.resume = null;
+    this.pendingDeathCommand = null;
     this.cancelJob();
     const bot = this.bot;
     this.bot = null;
     this.spawned = false;
+    if (this.autoEat) { this.autoEat.stop(); this.autoEat = null; }
     if (bot) { try { bot.quit(); } catch { /* egal */ } }
     this.setStatus('offline');
   }
@@ -195,40 +210,164 @@ class BotWorker {
   }
 
 
-  setupAutomation(bot) {
+  // Automatisches Wegwerfen konfigurierter Items (getrennt von Auto Eat).
+  setupDropItems(bot) {
     bot.on('physicsTick', async () => {
-      if (this.bot !== bot || !this.spawned || this.autoEatBusy) return;
+      if (this.bot !== bot || !this.spawned || this.dropBusy) return;
       const now = Date.now();
       if (now - this.lastAutomationAt < 1200) return;
       this.lastAutomationAt = now;
       const settings = this.m.settings || {};
       const dropNames = new Set((settings.dropItems || []).map((x) => String(x).trim().toLowerCase().replace(/^minecraft:/, '')).filter(Boolean));
-      if (dropNames.size) {
-        const toDrop = bot.inventory.items().find((item) => dropNames.has(item.name.toLowerCase()));
-        if (toDrop) {
-          this.autoEatBusy = true;
-          try { await bot.tossStack(toDrop); this.m.log(this.name, `Dropped configured item: ${toDrop.name}`, 'info'); }
-          catch (e) { this.m.log(this.name, `Item drop failed: ${e.message}`, 'warn'); }
-          finally { this.autoEatBusy = false; }
-          return;
-        }
-      }
-      if (settings.autoEat === false || bot.food == null || bot.food >= Math.max(1, Math.min(20, Number(settings.autoEatThreshold) || 14))) return;
-      const foods = bot.inventory.items().filter((item) => bot.registry.foods && bot.registry.foods[item.type]);
-      if (!foods.length) return;
-      const food = foods.sort((a, b) => {
-        const fa = bot.registry.foods[a.type] || {}, fb = bot.registry.foods[b.type] || {};
-        return (Number(fb.foodPoints) || 0) - (Number(fa.foodPoints) || 0);
-      })[0];
-      this.autoEatBusy = true;
-      try {
-        await bot.equip(food, 'hand');
-        await bot.consume();
-        this.m.log(this.name, `Auto Eat: ate ${food.name}`, 'info');
-      } catch (e) {
-        this.m.log(this.name, `Auto Eat: ${e.message}`, 'warn');
-      } finally { this.autoEatBusy = false; }
+      if (!dropNames.size) return;
+      const toDrop = bot.inventory.items().find((item) => dropNames.has(item.name.toLowerCase()));
+      if (!toDrop) return;
+      this.dropBusy = true;
+      try { await bot.tossStack(toDrop); this.m.log(this.name, `Dropped configured item: ${toDrop.name}`, 'info'); }
+      catch (e) { this.m.log(this.name, `Item drop failed: ${e.message}`, 'warn'); }
+      finally { this.dropBusy = false; }
     });
+  }
+
+  // ---------------------------------------------------------------- Tod / Respawn
+
+  deathSettings() {
+    const s = typeof this.m.getBotSettings === 'function' ? this.m.getBotSettings(this.name) : null;
+    return (s && s.death) || null;
+  }
+
+  setupLifecycle(bot) {
+    const state = { lastResetAt: 0, lastForcedAt: 0, spawns: 0, chat: [], packetCause: null };
+    this.lifecycle = state;
+    const stamp = () => { state.lastResetAt = Date.now(); };
+    bot.on('login', stamp);
+    bot.on('respawn', stamp);
+    bot.on('death', stamp);
+    bot.on('forcedMove', () => { state.lastForcedAt = Date.now(); });
+    bot.on('messagestr', (msg) => {
+      state.chat.push({ t: Date.now(), text: String(msg || '') });
+      if (state.chat.length > 40) state.chat.shift();
+    });
+    // Die Todesnachricht des Servers (wie auf dem Todesbildschirm) enthaelt die Ursache.
+    if (bot._client) {
+      bot._client.on('death_combat_event', (packet) => {
+        try {
+          const ChatMessage = require('prismarine-chat')(bot.registry);
+          state.packetCause = { t: Date.now(), text: ChatMessage.fromNotch(packet.message).toString() };
+        } catch { /* Ursache faellt dann auf die Chatzeile oder "unbekannt" zurueck */ }
+      });
+    }
+    bot.on('death', () => this.onDeath(bot, state));
+    // Der erste Spawn wird in connect() behandelt; jeder weitere ist ein Respawn/Dimensionswechsel.
+    bot.on('spawn', () => {
+      state.spawns++;
+      if (state.spawns > 1) this.handleRespawn(bot, state).catch((e) => this.m.log(this.name, `Respawn-Behandlung: ${e && e.message ? e.message : e}`, 'warn'));
+    });
+  }
+
+  onDeath(bot, state) {
+    if (this.bot !== bot) return;
+    const pos = bot.entity && bot.entity.position;
+    const server = this.serverAddress ? `${this.serverAddress.host}${this.serverAddress.port && this.serverAddress.port !== 25565 ? ':' + this.serverAddress.port : ''}` : null;
+    const info = {
+      server,
+      position: pos && Number.isFinite(pos.x) ? `${Math.floor(pos.x)} ${Math.floor(pos.y)} ${Math.floor(pos.z)}` : null,
+      dimension: bot.game && bot.game.dimension ? String(bot.game.dimension).replace(/^minecraft:/, '') : null,
+      task: ({ idle: 'keine', mining: 'Abbau', afk: 'AFK', fishing: 'Angeln', trading: 'Handel' })[this.profile] || this.profile,
+    };
+    this.m.log(this.name, 'Bot ist gestorben', 'warn');
+
+    // Aufgabe pausieren statt sie mit toter Spielfigur weiterlaufen zu lassen (sonst werden
+    // Bloecke faelschlich als unerreichbar markiert); nach dem Respawn geht es weiter.
+    if (this.profile === 'mining' && this.m.mining && this.region) this.resume = { type: 'mining' };
+    else if (this.profile === 'afk' || this.profile === 'fishing') this.resume = { type: 'profile', profile: this.profile, options: { ...this.profileOptions } };
+    else this.resume = null;
+    this.cancelJob();
+    try { bot.pathfinder.stop(); } catch { /* egal */ }
+    try { bot.clearControlStates(); } catch { /* egal */ }
+    this.setStatus('idle', 'Gestorben – wartet auf Respawn');
+
+    const settings = this.deathSettings();
+    this.pendingDeathCommand = settings && settings.commandEnabled && settings.command
+      ? { command: settings.command, delaySec: settings.delaySec ?? 3 }
+      : null;
+    if (settings && settings.webhookEnabled && settings.webhookUrl) {
+      // Die Todesnachricht kommt oft einen Moment nach dem Tod: kurz warten und einsammeln.
+      setTimeout(() => this.sendDeathWebhook(bot, state, info, settings.webhookUrl), 1200);
+    }
+  }
+
+  async sendDeathWebhook(bot, state, info, url) {
+    try {
+      const fresh = state.packetCause && Date.now() - state.packetCause.t < 8000;
+      const cause = extractDeathCause({
+        packetText: fresh ? state.packetCause.text : '',
+        chatLines: state.chat,
+        names: [bot.username, this.accountName],
+      });
+      state.packetCause = null;
+      const payload = buildDeathPayload({ ...info, minecraftName: bot.username || this.accountName || this.name, cause, time: Date.now() }, url);
+      await sendWebhook(url, payload);
+      this.m.log(this.name, `Todes-Webhook gesendet (${cause})`, 'info');
+    } catch (e) {
+      this.m.log(this.name, `Todes-Webhook fehlgeschlagen: ${e && e.message ? e.message : e}`, 'warn');
+    }
+  }
+
+  // Mineflayer schaltet die Physik bei Respawn aus und erst mit der naechsten Server-Position
+  // wieder an. Bleibt die aus, stuende der Bot ohne Physik (kein Knockback/Schieben) da.
+  async ensurePhysics(bot, state) {
+    if (state.lastForcedAt >= state.lastResetAt) return;
+    const arrived = await new Promise((resolve) => {
+      const done = (value) => { clearTimeout(timer); bot.removeListener('forcedMove', onMove); bot.removeListener('end', onEnd); resolve(value); };
+      const onMove = () => done(true);
+      const onEnd = () => done(false);
+      const timer = setTimeout(() => done(false), this.physicsWaitMs ?? 6000);
+      bot.on('forcedMove', onMove);
+      bot.on('end', onEnd);
+    });
+    if (arrived || this.bot !== bot) return;
+    if (typeof bot._forcePhysicsOn === 'function') {
+      bot._forcePhysicsOn();
+      this.m.log(this.name, 'Server hat nach dem Respawn keine Position gesendet – Physik manuell wieder eingeschaltet', 'warn');
+    }
+  }
+
+  async handleRespawn(bot, state) {
+    if (this.bot !== bot) return;
+    await this.ensurePhysics(bot, state);
+    if (this.bot !== bot) return;
+    bot.physicsEnabled = true;
+    try { bot.clearControlStates(); } catch { /* egal */ }
+
+    const command = this.pendingDeathCommand;
+    this.pendingDeathCommand = null;
+    if (command) {
+      await sleep(command.delaySec * 1000);
+      if (this.bot !== bot) return;
+      try {
+        await this.chat(command.command);
+        this.m.log(this.name, `Todes-Befehl ausgeführt: ${command.command}`, 'info');
+      } catch (e) {
+        this.m.log(this.name, `Todes-Befehl fehlgeschlagen: ${e && e.message ? e.message : e}`, 'warn');
+      }
+    }
+
+    const resume = this.resume;
+    this.resume = null;
+    if (resume) {
+      await sleep(command ? 1500 : 500); // nach einem Teleport-Befehl kurz ankommen lassen
+      if (this.bot !== bot || !this.spawned) return;
+      try {
+        if (resume.type === 'mining') { if (this.m.mining && this.region) this.startJob(); }
+        else this.startProfile(resume.profile, resume.options);
+        this.m.log(this.name, 'Aufgabe nach dem Respawn fortgesetzt', 'info');
+      } catch (e) {
+        this.m.log(this.name, `Aufgabe konnte nach dem Respawn nicht fortgesetzt werden: ${e && e.message ? e.message : e}`, 'warn');
+      }
+    } else if (this.status === 'idle' && /^Gestorben/.test(this.detail)) {
+      this.setStatus('idle', 'Bereit');
+    }
   }
 
   // ---------------------------------------------------------------- Job-Steuerung
@@ -258,6 +397,7 @@ class BotWorker {
 
   stopJob() {
     this.profile = 'idle';
+    this.resume = null; // wer stoppt, will nach dem Respawn nichts fortsetzen
     this.cancelJob();
     const bot = this.bot;
     if (bot && this.spawned) {
@@ -897,6 +1037,7 @@ class BotWorker {
       hasRegion: !!this.region,
       msa: this.m.msa.get(this.name) || null,
       pos: null, health: null, food: null, pickaxe: null, bottles: null, freeSlots: null, inventory: [],
+      death: publicDeathSettings(this.deathSettings()),
     };
     if (ready) {
       const p = bot.entity.position;

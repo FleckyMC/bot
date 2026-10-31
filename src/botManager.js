@@ -5,6 +5,7 @@ const fs = require('fs');
 const config = require('./config');
 const planner = require('./planner');
 const { BotWorker } = require('./botWorker');
+const { normalizeDeathSettings, buildDeathPayload, sendWebhook } = require('./deathNotify');
 const { Authflow, Titles } = require('prismarine-auth');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -34,6 +35,7 @@ class BotManager extends EventEmitter {
     // Only fully authenticated Minecraft profiles are persisted as selectable bots.
     this.names = [...new Set([...(Array.isArray(cfg.names) ? cfg.names.filter((n) => typeof n === 'string' && n.trim() && this.accountNames[n]) : []), ...Object.keys(this.accountNames).filter((n) => this.accountNames[n])])];
     this.accountProfiles = cfg.accountProfiles || {};
+    this.botSettings = cfg.botSettings || {};
     this.area = cfg.area;
     this.settings = cfg.settings;
     this.workers = new Map();
@@ -82,7 +84,7 @@ class BotManager extends EventEmitter {
   save() {
     try {
       config.save(this.file, {
-        connection: this.connection, version: this.version, names: this.names, accountNames: this.accountNames, accountProfiles: this.accountProfiles, area: this.area, settings: this.settings,
+        connection: this.connection, version: this.version, names: this.names, accountNames: this.accountNames, accountProfiles: this.accountProfiles, botSettings: this.botSettings, area: this.area, settings: this.settings,
       });
     } catch (e) { this.log('system', `Konfiguration konnte nicht gespeichert werden: ${e.message}`, 'warn'); }
   }
@@ -296,6 +298,7 @@ class BotManager extends EventEmitter {
     this.msa.delete(w.name);
     delete this.accountNames[w.name];
     delete this.accountProfiles[w.name];
+    delete this.botSettings[w.name];
     this.save();
     this.log('system', `Bot ${w.name} entfernt`, 'info');
     this.touch();
@@ -361,6 +364,39 @@ class BotManager extends EventEmitter {
     this.save();
     this.log('system', 'Einstellungen gespeichert', 'info');
     this.touch();
+  }
+
+  // ------------------------------------------------------------ Einstellungen pro Bot
+
+  getBotSettings(name) {
+    return this.botSettings[String(name)] || {};
+  }
+
+  setBotDeathSettings(name, input) {
+    const w = this.workers.get(String(name || ''));
+    if (!w) throw new Error('Unbekannter Bot');
+    const current = this.getBotSettings(w.name);
+    const death = normalizeDeathSettings(input, current.death);
+    this.botSettings[w.name] = { ...current, death };
+    this.save();
+    this.log(w.name, `Todes-Einstellungen gespeichert (Befehl: ${death.commandEnabled ? 'an' : 'aus'}, Webhook: ${death.webhookEnabled ? 'an' : 'aus'})`, 'info');
+    this.touch();
+  }
+
+  async testDeathWebhook(name) {
+    const w = this.workers.get(String(name || ''));
+    if (!w) throw new Error('Unbekannter Bot');
+    const death = this.getBotSettings(w.name).death;
+    if (!death || !death.webhookUrl) throw new Error('Für diesen Bot ist noch keine Webhook-URL gespeichert');
+    const payload = buildDeathPayload({
+      minecraftName: w.accountName || this.accountNames[w.name] || w.name,
+      cause: 'Das ist eine Testnachricht – kein echter Tod.',
+      server: this.connection && this.connection.host ? this.connection.host : null,
+      test: true,
+      time: Date.now(),
+    }, death.webhookUrl);
+    await sendWebhook(death.webhookUrl, payload);
+    this.log(w.name, 'Test-Webhook gesendet', 'info');
   }
 
   // ------------------------------------------------------------ Start / Stop
