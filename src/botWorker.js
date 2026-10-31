@@ -99,6 +99,20 @@ class BotWorker {
       return;
     }
     this.bot = bot;
+    // Minecraft 1.21.9+ sends entity_velocity as lpVec3 in blocks/tick.
+    // Mineflayer 4.39.0 still applies the legacy /8000 conversion, so restore
+    // the protocol's native velocity after Mineflayer processes the packet.
+    bot._client.on('entity_velocity', (packet) => {
+      const version = String(bot.version || '');
+      const match = version.match(/^(\\d+)\\.(\\d+)\\.(\\d+)/);
+      if (!match) return;
+      const [, major, minor, patch] = match.map(Number);
+      const isModernVelocity = major > 1 || (major === 1 && (minor > 21 || (minor === 21 && patch >= 9)));
+      if (!isModernVelocity) return;
+      const entity = bot.entities[packet.entityId] || (bot.entity && bot.entity.id === packet.entityId ? bot.entity : null);
+      if (!entity || !entity.velocity || !packet.velocity) return;
+      entity.velocity.update(new Vec3(packet.velocity.x, packet.velocity.y, packet.velocity.z));
+    });
     // Keep Mineflayer's normal server-authoritative player physics enabled.
     // Knockback/velocity comes from the Minecraft server; don't pin the entity in place.
     bot.physicsEnabled = true;
