@@ -4,6 +4,7 @@ const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const { Vec3 } = require('vec3');
 const { inside } = require('./planner');
+const { installPhysicsFixes } = require('./physicsFix');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -102,6 +103,10 @@ class BotWorker {
     // Keep Mineflayer's normal server-authoritative player physics enabled.
     // Knockback/velocity comes from the Minecraft server; don't pin the entity in place.
     bot.physicsEnabled = true;
+    // 1.21.9+: Knockback korrekt dekodieren (lpVec3) und Spieler-Kollision (Anstupsen) nachbilden.
+    installPhysicsFixes(bot, (msg, level) => m.log(this.name, msg, level), {
+      enabled: () => this.m.settings.entityPush !== false,
+    });
     bot.loadPlugin(pathfinder);
     this.setupAutomation(bot);
 
