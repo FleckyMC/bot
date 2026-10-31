@@ -101,6 +101,7 @@ function render(s) {
   const selection = activeId && document.activeElement && typeof document.activeElement.selectionStart === 'number' ? [document.activeElement.selectionStart, document.activeElement.selectionEnd] : null;
   state = s;
   if (!formsFilled) fillForms(s);
+  $('version').textContent = s.version || 'auto';
 
   const online = s.bots.filter((b) => b.pos).length;
   const c = $('conn');

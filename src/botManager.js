@@ -124,8 +124,8 @@ class BotManager extends EventEmitter {
     const v = String(version || 'auto').trim();
     // Mineflayer auto-detects the server protocol. Explicit versions are accepted
     // without a UI allow-list; actual support is still limited by minecraft-protocol.
-    if (v !== 'auto' && !/^1\.\d{1,2}(?:\.\d{1,2})?$/.test(v)) throw new Error('Ungueltige Minecraft-Version (z. B. auto, 1.20.4)');
-    if (this.workers.size) throw new Error('Bitte Bots zuerst trennen, dann die Version ändern');
+    if (v !== 'auto' && !require('minecraft-data').versionsByMinecraftVersion.pc[v]) throw new Error('Unbekannte Minecraft-Version (z. B. auto, 1.21.11, 26.1)');
+    if ([...this.workers.values()].some(w => w.bot || w.wantConnected)) throw new Error('Bitte Bots zuerst trennen, dann die Version ändern');
     this.version = v;
     this.save();
     this.log('system', `Minecraft-Version gesetzt: ${v === 'auto' ? 'automatisch erkennen' : v}`, 'info');

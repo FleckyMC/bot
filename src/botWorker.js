@@ -5,6 +5,7 @@ const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const { Vec3 } = require('vec3');
 const { inside } = require('./planner');
 const { installPhysicsFixes } = require('./physicsFix');
+const { getPhysicsPlugin } = require('./tickEndPhysics');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -93,6 +94,7 @@ class BotWorker {
         checkTimeoutInterval: 60000,
         // Diagnose protocol/server errors instead of silently hiding them.
         hideErrors: false,
+        plugins: { physics: getPhysicsPlugin() },
       });
     } catch (e) {
       m.log(this.name, `Start fehlgeschlagen: ${e.message}`, 'error');
@@ -399,7 +401,7 @@ class BotWorker {
             if (runs <= 0 || offer.tradeDisabled || offer.disabled) throw new Error('Dieses Handelsangebot ist derzeit ausverkauft/deaktiviert');
             let completed = 0;
             for (; completed < runs && this.alive(token) && !token.cancelled; completed++) {
-              await bot.trade(villagers[0], tradeIndex, 1);
+              await window.trade(tradeIndex, 1);
               this.stats.trades = (this.stats.trades || 0) + 1;
               this.m.touch();
               await sleep(250);
@@ -814,30 +816,35 @@ class BotWorker {
     const message = String(text || '').trim();
     if (!message) throw new Error('Leere Nachricht');
     if (message.length > 256) throw new Error('Maximal 256 Zeichen');
+    if (/[\r\n\u0000]/.test(message)) throw new Error('Nur eine Chat-Zeile pro Nachricht erlaubt');
+    // A queued command belongs to this connection, never to a later login.
+    const bot = this.bot;
+    const isReady = () => bot && this.bot === bot && this.spawned && bot.entity && bot._client.state === 'play';
 
     // Serialize outgoing chat per bot and leave enough time between messages.
     // Some servers silently discard rapid messages/commands as anti-spam.
     const task = this.chatQueue.catch(() => {}).then(async () => {
-      if (!this.bot || !this.spawned || !this.bot.entity) {
+      if (!isReady()) {
         throw new Error(`${this.accountName || this.name} ist nicht verbunden oder noch nicht gespawnt`);
       }
       const waitMs = Math.max(0, 1500 - (Date.now() - this.lastChatAt));
       if (waitMs) await sleep(waitMs);
-      if (!this.bot || !this.spawned || !this.bot.entity) {
+      if (!isReady()) {
         throw new Error(`${this.accountName || this.name} wurde vor dem Senden getrennt`);
       }
+      let cancelEcho;
       try {
-        const bot = this.bot;
         const isCommand = message.startsWith('/');
         // Ab 1.19.3 signiert der Client Chat mit dem Profilschluessel der Sitzung. Fehlt er
         // (z.B. Zertifikate nicht geladen), geht die Nachricht unsigniert raus - Server mit
         // erzwungener sicherer Chat-Signatur verwerfen sie dann.
         const signed = !!(bot._client && bot._client.profileKeys && bot._client._session);
+        if (!isCommand) cancelEcho = this.watchChatEcho(bot, message);
         bot.chat(message);
         this.lastChatAt = Date.now();
         this.m.log(this.name, `Chat-Sendeaufruf ausgeführt (${isCommand ? 'Befehl' : 'Chat'}, ${signed ? 'signiert' : 'UNSIGNIERT'}): ${message}`, 'chat');
-        if (!isCommand) this.watchChatEcho(bot, message);
       } catch (e) {
+        if (cancelEcho) cancelEcho();
         this.m.log(this.name, `Chat-Senden fehlgeschlagen: ${e && e.stack ? e.stack : e}`, 'error');
         throw e;
       }
@@ -851,17 +858,23 @@ class BotWorker {
   watchChatEcho(bot, message) {
     const needle = message.toLowerCase();
     let timer = null;
-    const onMessage = (text) => {
-      if (!String(text || '').toLowerCase().includes(needle)) return;
+    const cleanup = () => {
       clearTimeout(timer);
       bot.removeListener('messagestr', onMessage);
+      bot.removeListener('end', cleanup);
+    };
+    const onMessage = (text) => {
+      if (!String(text || '').toLowerCase().includes(needle)) return;
+      cleanup();
       this.m.log(this.name, 'Server hat die Chat-Nachricht zurückgespielt (angekommen)', 'info');
     };
     timer = setTimeout(() => {
-      bot.removeListener('messagestr', onMessage);
-      this.m.log(this.name, 'Keine Rückmeldung des Servers auf die Chat-Nachricht innerhalb von 5 s – vermutlich verworfen oder blockiert', 'warn');
+      cleanup();
+      this.m.log(this.name, 'Kein Chat-Echo innerhalb von 5 s. Das allein bestätigt weder Zustellung noch Blockierung; Servermeldungen im Log prüfen.', 'warn');
     }, 5000);
     bot.on('messagestr', onMessage);
+    bot.once('end', cleanup);
+    return cleanup;
   }
 
   snapshot() {

@@ -33,6 +33,7 @@ const VERSION = process.env.MC_VERSION || 'auto';
 const FORCE_SECURE = String(process.env.COOKIE_SECURE).toLowerCase() === 'true';
 
 const auth = require('./auth');
+const { authorizeAction } = require('./access');
 const { BotManager } = require('./botManager');
 
 auth.configure(path.join(ROOT, 'data', 'users.json'), USER, PASSWORD);
@@ -106,6 +107,7 @@ app.use(express.static(path.join(ROOT, 'public'), { index: 'index.html', extensi
 // ---- Socket.io: Login-Cookie und Origin pruefen
 const socketUserById = new Map();
 const viewAsBySocket = new Map();
+const userForSocket = socket => auth.sessionUser(auth.tokenFrom(socket.request));
 io.use((socket, next) => {
   const req = socket.request;
   const origin = req.headers.origin;
@@ -145,13 +147,18 @@ const owned = (name, user) => {
 };
 const snapshotFor = (user) => { const snap=manager.snapshot(); if (isAdmin(user)) return snap; snap.bots=snap.bots.filter(b=>owned(b.name,user)); snap.names=snap.bots.map(b=>b.name); snap.pendingSignIns=[]; return {...snap,connection:null,area:null,settings:{},mining:false}; };
 io.on('connection', (socket) => {
-  const originalUser = () => auth.getUsers().find(u => u.id === socketUserById.get(socket.id));
+  const originalUser = () => userForSocket(socket);
   const currentUser = () => { const original=originalUser(); const target=viewAsBySocket.get(socket.id); return isAdmin(original)&&target ? auth.getUsers().find(u=>u.id===target) || original : original; };
   socket.emit('init', { state: snapshotFor(currentUser()), logs: isAdmin(currentUser()) ? manager.logs.slice(-200) : [] });
   socket.on('action', async (type, payload, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     const user = currentUser();
     const original = originalUser();
+    if (!original) {
+      reply({ok:false,error:'Session expired. Sign in again.'});
+      socket.disconnect(true);
+      return;
+    }
     if (type === 'view_as') {
       if (!isAdmin(original)) return reply({ok:false,error:'Admin only'});
       const target = auth.getUsers().find(u=>u.id===String(payload && payload.userId || ''));
@@ -183,13 +190,8 @@ io.on('connection', (socket) => {
     }
     const fn = Object.prototype.hasOwnProperty.call(actions, type) ? actions[type] : null;
     if (!fn) return reply({ ok: false, error: 'Unknown action' });
-    if (!isAdmin(user)) {
-      if (['connect_bots','connect_selected','disconnect_bots','set_area','set_settings','set_version','start','add_bot','remove_bot'].includes(type)) return reply({ok:false,error:'Only the admin can change global bot settings or add/remove bots.'});
-      if (type === 'chat' && payload && payload.target !== 'all' && !owned(payload.target,user)) return reply({ok:false,error:'Bot not assigned to this account.'});
-      if (type === 'chat' && payload && payload.target === 'all') return reply({ok:false,error:'Select an assigned bot.'});
-      if (type === 'bot_profile' && !owned(payload && payload.name,user)) return reply({ok:false,error:'Bot not assigned to this account.'});
-    }
     try {
+      authorizeAction(user, type, payload, owned);
       await fn(payload);
       reply({ ok: true });
     } catch (e) {
@@ -199,9 +201,10 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => { socketUserById.delete(socket.id); viewAsBySocket.delete(socket.id); });
 });
 
-manager.on('log', (entry) => { for (const socket of io.sockets.sockets.values()) { const original=auth.getUsers().find(x=>x.id===socketUserById.get(socket.id)); const u=viewAsBySocket.has(socket.id)?auth.getUsers().find(x=>x.id===viewAsBySocket.get(socket.id)):original; if (isAdmin(original) || owned(entry.source, u)) socket.emit('log', entry); } });
-manager.on('change', () => { for (const socket of io.sockets.sockets.values()) { const original=auth.getUsers().find(x=>x.id===socketUserById.get(socket.id)); const u=viewAsBySocket.has(socket.id)?auth.getUsers().find(x=>x.id===viewAsBySocket.get(socket.id)):original; socket.emit('state', snapshotFor(u)); } });
-setInterval(() => { if (io.engine.clientsCount) for (const socket of io.sockets.sockets.values()) { const original=auth.getUsers().find(x=>x.id===socketUserById.get(socket.id)); const u=viewAsBySocket.has(socket.id)?auth.getUsers().find(x=>x.id===viewAsBySocket.get(socket.id)):original; socket.emit('state', snapshotFor(u)); } }, 1000).unref();
+manager.on('log', (entry) => { for (const socket of io.sockets.sockets.values()) { const original=userForSocket(socket); if (!original) { socket.disconnect(true); continue; } const u=isAdmin(original)&&viewAsBySocket.has(socket.id)?auth.getUsers().find(x=>x.id===viewAsBySocket.get(socket.id)):original; if (isAdmin(original) || owned(entry.source, u)) socket.emit('log', entry); } });
+const broadcastState = () => { for (const socket of io.sockets.sockets.values()) { const original=userForSocket(socket); if (!original) { socket.disconnect(true); continue; } const u=isAdmin(original)&&viewAsBySocket.has(socket.id)?auth.getUsers().find(x=>x.id===viewAsBySocket.get(socket.id))||original:original; socket.emit('state', snapshotFor(u)); } };
+manager.on('change', broadcastState);
+setInterval(() => { if (io.engine.clientsCount) broadcastState(); }, 1000).unref();
 
 process.on('unhandledRejection', (e) => manager.log('system', `Unbehandelter Fehler: ${e && e.message ? e.message : e}`, 'error'));
 process.on('uncaughtException', (e) => manager.log('system', `Fehler: ${e && e.message ? e.message : e}`, 'error'));

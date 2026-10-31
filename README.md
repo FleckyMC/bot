@@ -22,7 +22,7 @@ können vom Dashboard aus gestartet, gestoppt und per Chat/Befehl gesteuert werd
 ## Installation auf dem VPS (Ubuntu/Debian)
 
 ```bash
-# 1. Node.js 20 oder neuer
+# 1. Node.js 22 oder neuer
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt install -y nodejs unzip
 
@@ -86,7 +86,7 @@ Das Dashboard steuert Accounts, die sich auf einem Server einloggen. Es ist durc
 - Die Bots laufen als reine Programme ohne Minecraft-Fenster. Pro Bot rechne mit etwa 50–100 MB RAM.
 - Minecraft-Version: Standardmäßig wird die Serverversion automatisch erkannt. Alternativ kannst du eine konkrete Versionsnummer eintragen. Die tatsächlich unterstützten Versionen hängen von Mineflayer/minecraft-protocol ab; kein Client kann ohne passende Protokollunterstützung garantiert jede jemals erschienene Version bedienen.
 - Viele Server begrenzen schnelle Logins; die Bots verbinden sich deshalb gestaffelt (5 s Abstand im Offline-Modus).
-- Die Bots essen nicht. Bei langen Läufen am besten Essen bereitstellen oder den Server auf Peaceful/ohne Hunger halten.
+- Auto Eat ist standardmäßig aktiv. Bei langen Läufen passendes Essen im Inventar bereitstellen; Auto Eat lässt sich in den Einstellungen abschalten.
 - Wegfindung kann an komplizierten Stellen hängen bleiben; dann überspringt der Bot den Block nach zwei Versuchen.
 - Erreicht ein Bot einen Block nicht (z. B. Bereich unter einer Erdschicht), meldet er das statt still zu stehen.
 
@@ -105,4 +105,4 @@ data/config.json    gespeicherte Einstellungen (wird automatisch angelegt)
 
 ## Test
 
-`npm test` prüft die Bereichsaufteilung.
+`npm test` prüft die Bereichsaufteilung, die Physik-Fixes und 19 Regressionen für Chat, Tick-Pakete, Versionen, Dashboard-Berechtigungen und Handel. Details zum Update stehen in `FIXES-AND-UPDATE.md`.
