@@ -236,6 +236,38 @@ class BotWorker {
     bot.on('chat:protocol_out', ({ packet, detail }) => {
       this.m.log(this.name, `Ausgehendes Chat-Protokollpaket: ${packet} ${JSON.stringify(detail).slice(0, 300)}`, 'info');
     });
+
+    // Capture the decoded 1.21.9+ velocity shape for the local player.
+    // This is observational only: never synthesize or overwrite server velocity.
+    client.on('entity_velocity', (packet) => {
+      if (!bot.entity || !packet || packet.entityId !== bot.entity.id) return;
+      const raw = packet.velocity;
+      const decoded = raw && typeof raw === 'object'
+        ? { x: raw.x, y: raw.y, z: raw.z }
+        : raw;
+      const current = bot.entity.velocity;
+      this.m.log(
+        this.name,
+        `Eigener entity_velocity-Packet: raw=${JSON.stringify(decoded)} entityVelocity=${current ? JSON.stringify({ x: current.x, y: current.y, z: current.z }) : 'null'}`,
+        'info'
+      );
+    });
+
+    let lastPhysicsSample = 0;
+    bot.on('physicsTick', () => {
+      if (!bot.entity || !this.spawned) return;
+      const now = Date.now();
+      if (now - lastPhysicsSample < 3000) return;
+      lastPhysicsSample = now;
+      const pos = bot.entity.position;
+      const vel = bot.entity.velocity;
+      if (!pos || !vel) return;
+      this.m.log(
+        this.name,
+        `Physik-Snapshot: pos=${JSON.stringify({ x: pos.x, y: pos.y, z: pos.z })} vel=${JSON.stringify({ x: vel.x, y: vel.y, z: vel.z })} onGround=${Boolean(bot.entity.onGround)}`,
+        'info'
+      );
+    });
   }
 
   setupAutomation(bot) {
