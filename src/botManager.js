@@ -372,6 +372,17 @@ class BotManager extends EventEmitter {
     return this.botSettings[String(name)] || {};
   }
 
+  setBotSneak(name, enabled) {
+    const w = this.workers.get(String(name || ''));
+    if (!w) throw new Error('Unbekannter Bot');
+    const sneak = enabled === true || enabled === 'true';
+    this.botSettings[w.name] = { ...this.getBotSettings(w.name), sneak };
+    this.save();
+    this.log(w.name, sneak ? 'Sneaken eingeschaltet' : 'Sneaken ausgeschaltet', 'info');
+    w.applySneak();
+    this.touch();
+  }
+
   setBotDeathSettings(name, input) {
     const w = this.workers.get(String(name || ''));
     if (!w) throw new Error('Unbekannter Bot');

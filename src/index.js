@@ -135,6 +135,7 @@ const actions = {
   bot_profile: (p) => manager.setBotProfile(p && p.name, p && p.profile, p && p.options || {}),
   add_bot: (p) => manager.addBot(p || {}),
   remove_bot: (p) => manager.removeBot(p && p.name),
+  set_bot_sneak: (p) => manager.setBotSneak(p && p.name, p && p.sneak),
   set_bot_death: (p) => manager.setBotDeathSettings(p && p.name, p && p.death),
   test_death_webhook: (p) => manager.testDeathWebhook(p && p.name),
   clear_logs: () => { manager.logs.length = 0; for (const client of io.sockets.sockets.values()) client.emit('logs_cleared'); },

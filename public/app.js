@@ -261,6 +261,7 @@ function render(s) {
     }
     details.append(kv('XP bottles', b.bottles != null ? String(b.bottles) : '-'));
     details.append(kv('Free slots', b.freeSlots != null ? String(b.freeSlots) : '-'));
+    details.append(kv('Sneak', b.sneak ? 'on' : 'off'));
     if (b.hasRegion) details.append(kv('Mined', String(b.mined)));
     if (b.profile === 'fishing') details.append(kv('Caught', String(b.fishCaught || 0)));
     if (b.profile === 'trading') details.append(kv('Trades', String(b.trades || 0)));
@@ -300,7 +301,7 @@ function render(s) {
     invBtn.onclick = () => { if (inventoryShown.has(b.name)) inventoryShown.delete(b.name); else inventoryShown.add(b.name); render(state); };
     actions.append(invBtn);
     if (state.isAdmin) {
-      const deathBtn = el('button', 'ghost', '☠ Death settings');
+      const deathBtn = el('button', 'ghost', '⚙ Bot settings');
       deathBtn.type = 'button';
       deathBtn.onclick = () => openDeathDialog(b);
       actions.append(deathBtn);
@@ -446,7 +447,8 @@ let deathBot = null;
 function openDeathDialog(bot) {
   deathBot = bot.name;
   const d = bot.death || {};
-  $('deathTitle').textContent = `Death settings · ${displayBotName(bot)}`;
+  $('deathTitle').textContent = `Bot settings · ${displayBotName(bot)}`;
+  $('botSneak').checked = !!bot.sneak;
   $('deathCmdOn').checked = !!d.commandEnabled;
   $('deathCmd').value = d.command || '';
   $('deathDelay').value = d.delaySec ?? 3;
@@ -459,6 +461,10 @@ function openDeathDialog(bot) {
   $('deathTest').disabled = !d.hasWebhook;
   $('deathDialog').showModal();
 }
+$('botSneak')?.addEventListener('change', () => {
+  if (!deathBot) return;
+  act('set_bot_sneak', { name: deathBot, sneak: $('botSneak').checked }, $('botSneak').checked ? 'Sneak on' : 'Sneak off');
+});
 $('deathClose')?.addEventListener('click', () => $('deathDialog').close());
 $('deathForm')?.addEventListener('submit', (e) => { e.preventDefault(); $('deathSave').click(); });
 $('deathSave')?.addEventListener('click', () => {

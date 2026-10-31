@@ -123,6 +123,9 @@ class BotWorker {
       log: (text, level) => m.log(this.name, text, level),
     });
     this.setupLifecycle(bot);
+    // Sneaken (pro Bot einstellbar): bei jedem Physik-Tick durchsetzen, denn Wegfindung, Tod und
+    // Respawn setzen alle Steuerungen (auch Sneaken) zurueck.
+    bot.on('physicsTick', () => { if (this.bot === bot) this.applySneak(); });
 
     bot.once('spawn', () => {
       if (this.bot !== bot) return;
@@ -227,6 +230,22 @@ class BotWorker {
       catch (e) { this.m.log(this.name, `Item drop failed: ${e.message}`, 'warn'); }
       finally { this.dropBusy = false; }
     });
+  }
+
+  // ---------------------------------------------------------------- Sneaken
+
+  wantSneak() {
+    const s = typeof this.m.getBotSettings === 'function' ? this.m.getBotSettings(this.name) : null;
+    return !!(s && s.sneak);
+  }
+
+  applySneak() {
+    const bot = this.bot;
+    if (!bot || !this.spawned || bot.isAlive === false || typeof bot.setControlState !== 'function') return;
+    const want = this.wantSneak();
+    try {
+      if (bot.getControlState('sneak') !== want) bot.setControlState('sneak', want);
+    } catch { /* Bot ist gerade nicht bereit; der naechste Tick versucht es erneut */ }
   }
 
   // ---------------------------------------------------------------- Tod / Respawn
@@ -1038,6 +1057,7 @@ class BotWorker {
       msa: this.m.msa.get(this.name) || null,
       pos: null, health: null, food: null, pickaxe: null, bottles: null, freeSlots: null, inventory: [],
       death: publicDeathSettings(this.deathSettings()),
+      sneak: this.wantSneak(),
     };
     if (ready) {
       const p = bot.entity.position;
