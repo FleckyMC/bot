@@ -99,7 +99,6 @@ class BotWorker {
       return;
     }
     this.bot = bot;
-    this.setupProtocolDiagnostics(bot);
     // Keep Mineflayer's normal server-authoritative player physics enabled.
     // Knockback/velocity comes from the Minecraft server; don't pin the entity in place.
     bot.physicsEnabled = true;
@@ -109,12 +108,6 @@ class BotWorker {
     bot.once('spawn', () => {
       if (this.bot !== bot) return;
       this.spawned = true;
-      // Minecraft 1.21.9+ uses a float32 player width on the server.
-      // Match that exact half-width in prismarine-physics to avoid tiny
-      // collision-boundary disagreements that can reject movement/jumps.
-      if (bot.version === '1.21.11' && bot.physics) {
-        bot.physics.playerHalfWidth = Math.fround(0.6) / 2;
-      }
       this.newAccountSignIn = false;
       this.attempts = 0;
       if (bot.username && bot.username !== this.accountName) {
@@ -194,81 +187,6 @@ class BotWorker {
     bot.pathfinder.thinkTimeout = 8000;
   }
 
-
-  setupProtocolDiagnostics(bot) {
-    const client = bot && bot._client;
-    if (!client || client.__chatDiagnosticsInstalled) return;
-    client.__chatDiagnosticsInstalled = true;
-
-    // Observe outgoing chat packets without changing their contents or timing.
-    if (typeof client.write === 'function') {
-      const originalWrite = client.write;
-      client.write = function (name, params, ...rest) {
-        if (/^(chat|chat_command|chat_message|chat_session_update|chat_ack|message_acknowledgement)/i.test(String(name))) {
-          const detail = {};
-          if (params && typeof params === 'object') {
-            for (const key of ['message', 'command', 'timestamp', 'salt', 'offset']) {
-              if (params[key] !== undefined) detail[key] = params[key];
-            }
-          }
-          try {
-            bot.emit('chat:protocol_out', { packet: String(name), detail });
-          } catch { /* Diagnose darf das Senden nicht beeinflussen */ }
-        }
-        return originalWrite.call(this, name, params, ...rest);
-      };
-    }
-
-    client.on('packet', (data, meta) => {
-      const packet = String(meta && meta.name || '');
-      if (/chat|message|disconnect|server_data/i.test(packet)) {
-        // Do not dump signatures, encryption material, or arbitrary plugin payloads.
-        const detail = {};
-        if (data && typeof data === 'object') {
-          for (const key of ['message', 'content', 'overlay', 'reason', 'type']) {
-            if (data[key] !== undefined) detail[key] = data[key];
-          }
-        }
-        this.m.log(this.name, `Eingehendes Protokollpaket: ${packet} ${JSON.stringify(detail).slice(0, 500)}`, 'info');
-      }
-    });
-
-    bot.on('chat:protocol_out', ({ packet, detail }) => {
-      this.m.log(this.name, `Ausgehendes Chat-Protokollpaket: ${packet} ${JSON.stringify(detail).slice(0, 300)}`, 'info');
-    });
-
-    // Capture the decoded 1.21.9+ velocity shape for the local player.
-    // This is observational only: never synthesize or overwrite server velocity.
-    client.on('entity_velocity', (packet) => {
-      if (!bot.entity || !packet || packet.entityId !== bot.entity.id) return;
-      const raw = packet.velocity;
-      const decoded = raw && typeof raw === 'object'
-        ? { x: raw.x, y: raw.y, z: raw.z }
-        : raw;
-      const current = bot.entity.velocity;
-      this.m.log(
-        this.name,
-        `Eigener entity_velocity-Packet: raw=${JSON.stringify(decoded)} entityVelocity=${current ? JSON.stringify({ x: current.x, y: current.y, z: current.z }) : 'null'}`,
-        'info'
-      );
-    });
-
-    let lastPhysicsSample = 0;
-    bot.on('physicsTick', () => {
-      if (!bot.entity || !this.spawned) return;
-      const now = Date.now();
-      if (now - lastPhysicsSample < 3000) return;
-      lastPhysicsSample = now;
-      const pos = bot.entity.position;
-      const vel = bot.entity.velocity;
-      if (!pos || !vel) return;
-      this.m.log(
-        this.name,
-        `Physik-Snapshot: pos=${JSON.stringify({ x: pos.x, y: pos.y, z: pos.z })} vel=${JSON.stringify({ x: vel.x, y: vel.y, z: vel.z })} onGround=${Boolean(bot.entity.onGround)}`,
-        'info'
-      );
-    });
-  }
 
   setupAutomation(bot) {
     bot.on('physicsTick', async () => {
