@@ -109,6 +109,12 @@ class BotWorker {
     bot.once('spawn', () => {
       if (this.bot !== bot) return;
       this.spawned = true;
+      // Minecraft 1.21.9+ uses a float32 player width on the server.
+      // Match that exact half-width in prismarine-physics to avoid tiny
+      // collision-boundary disagreements that can reject movement/jumps.
+      if (bot.version === '1.21.11' && bot.physics) {
+        bot.physics.playerHalfWidth = Math.fround(0.6) / 2;
+      }
       this.newAccountSignIn = false;
       this.attempts = 0;
       if (bot.username && bot.username !== this.accountName) {
