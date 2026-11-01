@@ -95,7 +95,7 @@ class BotWorker {
         deviceType: 'Win32',
         profilesFolder: this.profileDir || path.join(m.dataDir, 'profiles', safe),
         onMsaCode: (data) => m.setMsa(this.name, data),
-        viewDistance: 'short',
+        viewDistance: Math.min(16, Math.max(2, Number(process.env.VIEW_DISTANCE) || 8)),
         checkTimeoutInterval: 60000,
         // Diagnose protocol/server errors instead of silently hiding them.
         hideErrors: false,
