@@ -41,6 +41,11 @@ const defaults = () => ({
     discounts: [],
   },
   ratings: { channelId: '', feedbackChannelId: '' },
+  honeypot: {
+    enabled: false, channelId: '', action: 'kick', logChannelId: '', color: '#ef4444',
+    title: '🍯 Do not type here',
+    description: 'This channel is here to catch bots.\nIf you type in this chat, you will be kicked from the server.',
+  },
 });
 
 function sanitize(input = {}, prev = defaults()) {
@@ -107,6 +112,15 @@ function sanitize(input = {}, prev = defaults()) {
 
   const r = i.ratings || {}, pr = prev.ratings;
   out.ratings = { channelId: r.channelId === undefined ? pr.channelId : snow(r.channelId), feedbackChannelId: r.feedbackChannelId === undefined ? pr.feedbackChannelId : snow(r.feedbackChannelId) };
+  const h = i.honeypot || {}, ph = prev.honeypot || d.honeypot;
+  out.honeypot = {
+    enabled: flag(h.enabled, ph.enabled), channelId: h.channelId === undefined ? ph.channelId : snow(h.channelId),
+    action: h.action === undefined ? ph.action : (h.action === 'ban' ? 'ban' : 'kick'), logChannelId: h.logChannelId === undefined ? ph.logChannelId : snow(h.logChannelId),
+    color: h.color === undefined ? ph.color : color(h.color, '#ef4444'), title: h.title === undefined ? ph.title : text(h.title, 100, d.honeypot.title),
+    description: h.description === undefined ? ph.description : text(h.description, 2000),
+  };
+  if (out.honeypot.enabled && !out.honeypot.channelId) throw new Error('Pick the honeypot channel or turn the honeypot off.');
+  if (out.honeypot.enabled && [out.tickets.channelId, out.shop.channelId].includes(out.honeypot.channelId)) throw new Error('The honeypot channel must not be a ticket or shop channel.');
   return out;
 }
 

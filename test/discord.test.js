@@ -309,3 +309,33 @@ test('panels can be posted, and re-posting edits the same message', async () => 
   assert.equal(ch.sent.length, again, 'edited instead of posting again');
   await assert.rejects(() => w.bot.postPanel('rolePanel', 'missing'), /Save the role panel/);
 });
+
+test('honeypot: deletes the message and kicks/bans, ignores admins and bots and other channels', async () => {
+  const w = world();
+  const HP = '123123123123123123';
+  w.config.replace({ honeypot: { enabled: true, channelId: HP, action: 'kick', logChannelId: ID.feedback } });
+  const calls = [];
+  const msg = (extra = {}) => ({ guildId: ID.guild, channelId: HP, webhookId: null, content: 'buy cheap stuff', author: { id: ID.buyer, username: 'Spam', bot: false },
+    member: { id: ID.buyer, guild: w.guild, kickable: true, roles: { cache: new Set() }, kick: async (r) => calls.push(['kick', r]) }, delete: async () => calls.push(['delete']), ...extra });
+  await w.bot._handlers.onMessage(msg());
+  assert.deepEqual(calls.map((c) => c[0]), ['delete', 'kick']);
+  assert.match(JSON.stringify(w.channels.get(ID.feedback).sent[0].embeds[0].toJSON()), /Honeypot triggered/);
+  calls.length = 0;
+  await w.bot._handlers.onMessage(msg({ channelId: ID.ratings }));
+  await w.bot._handlers.onMessage(msg({ author: { id: ID.buyer, username: 'Bot', bot: true } }));
+  await w.bot._handlers.onMessage(msg({ member: { id: ID.staff, guild: w.guild, kickable: true, roles: { cache: new Set([ID.admin]) }, kick: async () => calls.push(['kick']) } }));
+  assert.deepEqual(calls, []);
+  // ban mode
+  w.config.replace({ honeypot: { action: 'ban' } });
+  w.guild.members = { ban: async (id, o) => calls.push(['ban', id, o.deleteMessageSeconds]) };
+  await w.bot._handlers.onMessage(msg());
+  assert.deepEqual(calls.at(-1), ['ban', ID.buyer, 3600]);
+  assert.throws(() => w.config.replace({ honeypot: { enabled: true, channelId: '' } }), /honeypot channel/);
+});
+
+test('honeypot warning can be posted', async () => {
+  const w = world();
+  w.config.replace({ honeypot: { enabled: true, channelId: ID.ratings } });
+  await w.bot.postPanel('honeypot');
+  assert.match(JSON.stringify(w.channels.get(ID.ratings).sent[0].embeds[0].toJSON()), /kicked from the server/);
+});

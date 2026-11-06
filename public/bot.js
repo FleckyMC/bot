@@ -202,6 +202,16 @@
       }, '+ Add discount', 25),
       postButton('shop', null, 'shop', 'Save & post panel')));
 
+    // --- honeypot
+    const hp = c.honeypot;
+    const act = el('select'); act.append(new Option('Kick the member', 'kick'), new Option('Ban the member', 'ban')); act.value = hp.action; act.addEventListener('change', () => { hp.action = act.value; mark(); });
+    root.append(section('Protection', 'Honeypot channel', note('A trap channel for spam bots: anyone who writes in it (except members with an admin role) has the message deleted and is removed from the server. Put the channel where bots find it, and give it a clear warning – the bot posts one for you.'),
+      check(hp, 'enabled', 'Honeypot active'),
+      grid('three', channel(hp, 'channelId', 'Honeypot channel'), field('When someone writes there', act), channel(hp, 'logChannelId', 'Log channel (optional)', 'textChannels', 'Every catch is posted here.')),
+      grid('two', text(hp, 'title', 'Warning title', { maxLength: 100 }), colorField(hp, 'color', 'Colour')),
+      text(hp, 'description', 'Warning text', { multiline: true, maxLength: 2000, hint: 'If you switch to “Ban”, change the text to say so.' }),
+      postButton('honeypot', null, 'honeypot', 'Save & post warning')));
+
     // --- ratings
     root.append(section('Shop', 'Ratings & feedback', note('After a purchase is completed the buyer can rate with 1–5 stars. The rating is posted as “@name bought something and left a rating of ⭐⭐⭐⭐ (4/5)”.'),
       grid('two', channel(c.ratings, 'channelId', 'Ratings channel'), channel(c.ratings, 'feedbackChannelId', 'Feedback channel', 'textChannels', 'Written feedback goes here, separate from the ratings.'))));

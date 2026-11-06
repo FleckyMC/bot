@@ -146,7 +146,7 @@
     time_added: 'added time to', renamed: 'renamed', limit_changed: 'changed the limit of', lifetime_changed: 'changed the membership of',
     discord_linked: 'linked Discord:', discord_changed: 'changed the connected Discord account of', discord_revoked: 'revoked the Discord authorization of',
     bot_config: 'changed the Discord bot settings', bot_panel: 'posted a bot panel:', bot_started: 'started the Discord bot', bot_stopped: 'stopped the Discord bot',
-    bot_kick: 'kicked', bot_ban: 'banned', bot_unban: 'unbanned', purchase_completed: 'completed a purchase:', purchase_cancelled: 'purchase cancelled:', purchase_rated: 'rating received:',
+    bot_honeypot: 'caught someone:', bot_kick: 'kicked', bot_ban: 'banned', bot_unban: 'unbanned', purchase_completed: 'completed a purchase:', purchase_cancelled: 'purchase cancelled:', purchase_rated: 'rating received:',
   };
   async function loadAudit() {
     const box = $('auditList');

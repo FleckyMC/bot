@@ -140,7 +140,17 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
       if (failed.length) throw new Error(`Posted, but could not add these emojis: ${failed.join(' ')} (custom emojis must come from this server).`);
       return 'Reaction role message posted.';
     }
+    if (kind === 'honeypot') {
+      if (!c.honeypot.channelId) throw new Error('Select the honeypot channel first and save.');
+      await upsertMessage('honeypot', c.honeypot.channelId, honeypotPanel());
+      return 'Honeypot message posted.';
+    }
     throw new Error('Unknown panel type.');
+  }
+
+  function honeypotPanel() {
+    const h = cfg().honeypot;
+    return { embeds: [new D.EmbedBuilder().setTitle(h.title).setDescription(h.description).setColor(h.color)] };
   }
 
   // after a select menu was used the client keeps the choice displayed; resetting the panel lets people pick it again
@@ -454,6 +464,28 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
     }
   }
 
+  /** Anyone who writes in the honeypot channel (except staff) is removed; the message is deleted first. */
+  async function onMessage(message) {
+    try {
+      const h = cfg().honeypot, g = guild();
+      if (!h.enabled || !h.channelId || !g || message.guildId !== g.id || message.channelId !== h.channelId) return;
+      if (message.author.bot || message.webhookId) return;
+      const member = message.member || await g.members.fetch(message.author.id).catch(() => null);
+      if (member && isAdmin(member)) return;
+      await message.delete().catch(() => {});
+      const reason = 'Honeypot: wrote in the bot-catching channel';
+      let ok = true, err = '';
+      try {
+        if (h.action === 'ban') await g.members.ban(message.author.id, { reason, deleteMessageSeconds: 3600 });
+        else if (member && member.kickable) await member.kick(reason);
+        else { ok = false; err = 'I cannot kick this member (my role must be above theirs).'; }
+      } catch (e) { ok = false; err = e.message; }
+      onEvent('honeypot', { by: { username: 'Honeypot' }, target: message.author.id, targetName: message.author.username, reason: `${h.action === 'ban' ? 'banned' : 'kicked'}${ok ? '' : ' FAILED: ' + err}` });
+      const log = h.logChannelId ? await g.channels.fetch(h.logChannelId).catch(() => null) : null;
+      if (log && log.isTextBased()) await log.send({ allowedMentions: noMentions, embeds: [new D.EmbedBuilder().setTitle('Honeypot triggered').setColor(ok ? '#ef4444' : '#f59e0b').addFields({ name: 'User', value: `<@${message.author.id}> (${message.author.username})`, inline: true }, { name: 'Action', value: ok ? (h.action === 'ban' ? 'Banned' : 'Kicked') : `Failed – ${err}`, inline: true }, { name: 'Message', value: (message.content || '(no text)').slice(0, 500) })] }).catch(() => {});
+    } catch (e) { log(`Honeypot failed: ${e.message}`); }
+  }
+
   function onChannelDelete(channel) {
     const t = data.ticketByChannel(channel.id);
     if (!t) return;
@@ -471,7 +503,7 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
     D = require('discord.js');
     status = 'starting'; error = '';
     client = new D.Client({
-      intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessageReactions],
+      intents: [D.GatewayIntentBits.Guilds, D.GatewayIntentBits.GuildMembers, D.GatewayIntentBits.GuildMessageReactions, D.GatewayIntentBits.GuildMessages],
       partials: [D.Partials.Message, D.Partials.Channel, D.Partials.Reaction, D.Partials.User, D.Partials.GuildMember],
     });
     const c = client;
@@ -481,6 +513,7 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
     c.on(D.Events.MessageReactionAdd, (r, u) => onReaction(r, u, true));
     c.on(D.Events.MessageReactionRemove, (r, u) => onReaction(r, u, false));
     c.on(D.Events.ChannelDelete, onChannelDelete);
+    c.on(D.Events.MessageCreate, onMessage);
     c.on(D.Events.Error, (e) => log(`Client error: ${e.message}`));
     c.on(D.Events.ShardDisconnect, () => { if (client === c && status === 'online') status = 'starting'; });
     c.on(D.Events.ShardResume, () => { if (client === c) status = 'online'; });
@@ -526,7 +559,7 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
     guilds: () => (client ? [...client.guilds.cache.values()].map((g) => ({ id: g.id, name: g.name })) : []),
     status: () => ({ status, error, since: startedAt, tag: client && client.user ? client.user.tag : '', guildFound: !!guild() }),
     // exposed for tests
-    _handlers: { onInteraction, onMemberAdd, onReaction, onChannelDelete, sendGreeting, setClient(c, d) { client = c; D = d || require('discord.js'); status = 'online'; } },
+    _handlers: { onMessage, onInteraction, onMemberAdd, onReaction, onChannelDelete, sendGreeting, setClient(c, d) { client = c; D = d || require('discord.js'); status = 'online'; } },
   };
 }
 
