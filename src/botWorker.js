@@ -1,4 +1,11 @@
 'use strict';
+
+// Network/auth hiccups that usually disappear on their own (Mojang/Microsoft endpoints, timeouts, resets).
+function isTransientError(e) {
+  const s = typeof e === 'string' ? e : `${(e && e.code) || ''} ${(e && e.message) || ''}`;
+  return /ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|ENOTFOUND|EPIPE|EHOSTUNREACH|ENETUNREACH|socketClosed|socket hang up|network socket disconnected|Failed to obtain profile|does the account own minecraft|timed out|timeout|\b(429|500|502|503|504)\b|Too Many Requests|fetch failed|read ECONN/i.test(s);
+}
+
 const path = require('path');
 const mineflayer = require('mineflayer');
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
@@ -56,6 +63,7 @@ class BotWorker {
     // Server this bot connects to (set by the dashboard per bot). Falls back to the manager-wide default.
     this.target = null;
     this.attempts = 0;
+    this.lastError = null;
     this.reconnectTimer = null;
     this.region = null;
     this.job = null;
@@ -171,7 +179,12 @@ class BotWorker {
       m.log(this.name, `Kicked: ${String(text).slice(0, 300)}`, 'warn');
     });
 
-    bot.on('error', (e) => m.log(this.name, `Error: ${e && e.message ? e.message : e}`, 'error'));
+    bot.on('error', (e) => {
+      const msg = e && e.message ? e.message : String(e);
+      this.lastError = msg;
+      if (isTransientError(e)) m.log(this.name, `Temporary connection problem (${msg}) - retrying automatically`, 'warn');
+      else m.log(this.name, `Error: ${msg}`, 'error');
+    });
 
     bot.on('end', (reason) => {
       if (this.bot !== bot) return;
@@ -183,14 +196,18 @@ class BotWorker {
       m.log(this.name, `Connection lost (${reason || 'unknown'})`, 'warn');
       if (!this.wantConnected) { this.setStatus('offline'); return; }
       this.attempts++;
-      if (this.attempts > 5) {
+      const transient = !this.lastError || isTransientError(this.lastError);
+      const max = transient ? 15 : 5;
+      this.lastError = null;
+      if (this.attempts > max) {
         this.wantConnected = false;
-        this.setStatus('error', 'Connection failed after 5 attempts. Check the server address, version, and account access.');
-        m.log(this.name, 'Stopped reconnecting after 5 failed attempts', 'error');
+        this.setStatus('error', `Connection failed after ${max} attempts. Check the server address, version, and account access.`);
+        m.log(this.name, `Stopped reconnecting after ${max} failed attempts`, 'error');
         return;
       }
-      const delay = Math.min(60000, 5000 * 2 ** Math.min(this.attempts - 1, 4));
-      this.setStatus('reconnecting', `Retrying in ${Math.round(delay / 1000)}s (attempt ${this.attempts}/5)`);
+      const base = Math.min(120000, 5000 * 2 ** Math.min(this.attempts - 1, 5));
+      const delay = Math.round(base * (0.8 + Math.random() * 0.4)) + Math.floor(Math.random() * 3000);
+      this.setStatus('reconnecting', `Retrying in ${Math.round(delay / 1000)}s (attempt ${this.attempts}/${max})`);
       this.reconnectTimer = setTimeout(() => this.connect(), delay);
     });
   }
@@ -1227,4 +1244,4 @@ class BotWorker {
   }
 }
 
-module.exports = { BotWorker };
+module.exports = { BotWorker, isTransientError };

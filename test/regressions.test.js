@@ -366,3 +366,11 @@ test('users may drop items from and configure only their own bots; reconnect set
   assert.equal((await action('drop_items', { name: 'Mine', items: [{ slot: 9, name: 'stone', count: 1 }] })).ok, true);
   assert.deepEqual(manager.calls.map((c) => c[0]), ['dropAll', 'drop']);
 });
+
+test('isTransientError erkennt vorübergehende Verbindungsfehler', () => {
+  const { isTransientError } = require('../src/botWorker');
+  assert.equal(isTransientError(new Error('Failed to obtain profile data for X, does the account own minecraft?')), true);
+  assert.equal(isTransientError({ code: 'ETIMEDOUT', message: 'connect' }), true);
+  assert.equal(isTransientError('socketClosed'), true);
+  assert.equal(isTransientError(new Error('Invalid credentials')), false);
+});
