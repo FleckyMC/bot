@@ -272,7 +272,7 @@ function dashboard(t) {
     dropAll(...args) { this.calls.push(['dropAll', ...args]); }
     setBotReconnectSettings(...args) { this.calls.push(['reconnect', ...args]); }
   }
-  const app = { set() {}, disable() {}, use() {}, get() {}, post() {}, patch() {}, delete() {} };
+  const app = { set() {}, disable() {}, use() {}, get() {}, post() {}, patch() {}, put() {}, delete() {} };
   const express = () => app;
   express.urlencoded = express.json = express.static = () => () => {};
   const authForTest = { ...auth, configure: (_file, user, password) => auth.configure(path.join(dir, 'users.json'), user, password) };
@@ -283,8 +283,7 @@ function dashboard(t) {
     if (name === 'dotenv') return { config() {} };
     if (name === './auth') return authForTest;
     if (name === './botManager') return { BotManager: Manager };
-    if (name === './access') return require('../src/access');
-    if (name === './botSettings') return require('../src/botSettings');
+    if (name.startsWith('./')) return require(path.join(__dirname, '../src', name));
     return require(name);
   };
   const fakeProcess = new EventEmitter();

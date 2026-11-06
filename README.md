@@ -35,13 +35,21 @@ account**; the admin decides how many accounts each user may connect.
 
 The server-side physics fix logs (knockback, "physics fix active") are kept out of the activity log.
 
+## Roles, memberships and Discord linking
+
+- **Founder** (`FOUNDER_USER`/`FOUNDER_PASSWORD`): can create/delete admins, is invisible to admins, and is the only one who sees the **Founder** tab (Discord OAuth app, account webhook).
+- **Admin** (`ADMIN_ACCOUNTS` or created by the Founder): can create/delete users, rename accounts, change limits, add time, see linked Discord names/IDs and "X of limit" Microsoft accounts. Admins cannot delete other admins.
+- **Membership**: when time runs out the account is locked for 24 h (nothing usable, bots stopped); if not extended, it is deleted together with its bots.
+- **Discord linking**: in the Founder tab enter the Application ID, secret and public URL, then add `https://meltrovia.com/auth/discord/callback` as a redirect in the Discord Developer Portal (OAuth2). Once configured, users must link Discord before continuing. A link only changes when the user revokes the app in Discord; that is logged and can be sent to the webhook.
+- Migration: the former `DASHBOARD_USER` account becomes the Founder (old variables still work as a fallback).
+
 ## Install on a VPS (Ubuntu/Debian)
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt install -y nodejs
 npm install
-cp .env.example .env && nano .env      # set a long DASHBOARD_PASSWORD
+cp .env.example .env && nano .env      # set FOUNDER_USER / FOUNDER_PASSWORD (+ optional ADMIN_ACCOUNTS)
 npm start
 ```
 

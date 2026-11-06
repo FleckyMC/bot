@@ -10,7 +10,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="preload" href="/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/style.css?v=mn-2">
+  <link rel="stylesheet" href="/style.css?v=mn-3">
 </head>
 <body>
 <div id="viewAsBar" class="viewas" hidden><span>Viewing the dashboard as <b id="viewAsName"></b></span><button id="exitViewAs" class="sm" type="button">Back to admin view</button></div>
@@ -26,6 +26,7 @@
       <button class="tab" role="tab" data-tab="automation" data-admin aria-selected="false" hidden>Automation</button>
       <button class="tab" role="tab" data-tab="console" aria-selected="false">Console</button>
       <button class="tab" role="tab" data-tab="accounts" data-realadmin aria-selected="false" hidden>Accounts</button>
+      <button class="tab" role="tab" data-tab="founder" data-realfounder aria-selected="false" hidden>Founder</button>
       <button class="tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
     </nav>
     <div class="who"><span class="chip" id="conn">0/0 online</span><span class="name" id="whoName"></span><form method="post" action="/logout"><button class="ghost sm" type="submit">Log out</button></form></div>
@@ -153,19 +154,50 @@
 
   <!-- ============ ACCOUNTS (admin) ============ -->
   <section class="view" id="view-accounts" role="tabpanel">
-    <div class="page-head"><div><p class="eyebrow">Administration</p><h2>Accounts &amp; limits</h2><p>Every user connects their own Microsoft accounts. You decide how many.</p></div><span class="spacer"></span><button class="ghost" id="refreshAccounts" type="button">Refresh</button></div>
+    <div class="page-head"><div><p class="eyebrow">Administration</p><h2>Accounts &amp; limits</h2><p>Every user connects their own Microsoft accounts. You decide how many and for how long.</p></div><span class="spacer"></span><button class="ghost" id="refreshAccounts" type="button">Refresh</button></div>
     <div class="panel">
-      <div class="head"><div><p class="eyebrow">New user</p><h3>Create account</h3></div></div>
+      <div class="head"><div><p class="eyebrow">New account</p><h3>Create account</h3></div></div>
       <form id="createAccount" class="form-grid three">
         <label>Username<input name="username" required minlength="3" maxlength="32" autocomplete="off"></label>
         <label>Temporary password (10+ characters)<input name="password" type="password" required minlength="10" autocomplete="new-password"></label>
+        <label id="roleField" hidden>Role<select name="role"><option value="user">User</option><option value="admin">Admin</option></select><span class="hint">Only the founder can create admins</span></label>
         <label>Minecraft account limit<input name="botLimit" type="number" min="0" max="100" value="1" required><span class="hint">How many Microsoft accounts this user may connect</span></label>
-        <label>Lifetime in days<input name="days" type="number" min="1" placeholder="Permanent"><span class="hint">Leave empty for a permanent account</span></label>
+        <label>Membership in days<input name="days" type="number" min="1" placeholder="Permanent"><span class="hint">Empty = permanent. After it ends, the account is locked for 24 h and then deleted.</span></label>
         <div style="align-self:end"><button class="primary" type="submit">Create account</button></div>
       </form>
     </div>
-    <div class="toolbar" style="margin:16px 0"><input id="accountSearch" class="compact" placeholder="Search username…" aria-label="Search accounts"><span id="accountMessageAdmin" class="hint" role="status"></span></div>
+    <div class="toolbar" style="margin:16px 0"><input id="accountSearch" class="compact" placeholder="Search username…" aria-label="Search accounts"><select id="accountRole" aria-label="Filter by role"><option value="all">All roles</option><option value="user">Users</option><option value="admin">Admins</option></select><span id="accountMessageAdmin" class="hint" role="status"></span></div>
     <div id="accountList" class="grid cols-2"></div>
+    <div class="panel" style="margin-top:16px"><div class="head"><div><p class="eyebrow">History</p><h3>Account activity</h3></div></div><div id="auditList" class="log" style="height:300px"></div></div>
+  </section>
+
+  <!-- ============ FOUNDER ============ -->
+  <section class="view" id="view-founder" role="tabpanel">
+    <div class="page-head"><div><p class="eyebrow">Founder</p><h2>Founder settings</h2><p>Only you can see and change these settings.</p></div></div>
+    <div class="grid cols-2">
+      <div class="panel"><div class="head"><div><p class="eyebrow">Discord</p><h3>Discord account linking</h3></div><span class="spacer"></span><span id="fdStatus" class="chip">not set up</span></div>
+        <div class="stack">
+          <p class="muted">Users must link their Discord account before they can use the dashboard. Create an application at <b>discord.com/developers/applications</b>, open <b>OAuth2</b> and add the redirect URL below.</p>
+          <label>Application ID (Client ID)<input id="fdClientId" inputmode="numeric" autocomplete="off" placeholder="123456789012345678"></label>
+          <label>Client secret<input id="fdClientSecret" type="password" autocomplete="new-password" placeholder="Leave empty to keep the saved secret"><span class="hint" id="fdSecretHint"></span></label>
+          <label>Public dashboard URL<input id="fdPublicUrl" autocomplete="off" placeholder="https://meltrovia.com"></label>
+          <label>Redirect URL to add in Discord<div class="toolbar"><input id="fdRedirect" readonly class="grow"><button class="ghost sm" id="fdCopyRedirect" type="button">Copy</button></div></label>
+          <div class="toolbar"><button class="primary" id="fdSaveDiscord" type="button">Save Discord settings</button></div>
+        </div>
+      </div>
+      <div class="panel"><div class="head"><div><p class="eyebrow">Logging</p><h3>Account webhook</h3></div></div>
+        <div class="stack">
+          <p class="muted">Posts a message to a Discord channel when accounts are created, deleted, renamed or extended, when memberships end and when someone changes their Discord account.</p>
+          <label class="check"><input id="fdHookOn" type="checkbox"> Send account events to this webhook</label>
+          <label>Webhook URL<input id="fdHookUrl" type="password" autocomplete="off" placeholder="https://discord.com/api/webhooks/…"><span class="hint" id="fdHookHint"></span></label>
+          <div id="fdEvents" class="stack"></div>
+          <div class="toolbar"><button class="primary" id="fdSaveHook" type="button">Save webhook</button><button class="ghost" id="fdTestHook" type="button">Send test message</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:16px"><div class="head"><div><p class="eyebrow">Admins</p><h3>Admin accounts</h3></div></div>
+      <p class="muted">Create and delete admin accounts in the <button class="ghost sm" data-goto="accounts" type="button">Accounts</button> tab (choose the role “Admin”). You can also define admins in <code>.env</code> with <code>ADMIN_ACCOUNTS</code>. Admins cannot see you and cannot delete other admins.</p>
+    </div>
   </section>
 
   <!-- ============ SETTINGS ============ -->
@@ -173,7 +205,7 @@
     <div class="page-head"><div><p class="eyebrow">Settings</p><h2>Your profile</h2></div></div>
     <div class="grid cols-2">
       <div class="panel"><div class="head"><div><p class="eyebrow">Account</p><h3>Profile</h3></div></div>
-        <div class="stack"><div class="kv"><span>Username</span><b id="pfName">-</b></div><div class="kv"><span>Role</span><b id="pfRole">-</b></div><div class="kv"><span>Minecraft accounts</span><b id="pfLimit">-</b></div></div>
+        <div class="stack"><div class="kv"><span>Username</span><b id="pfName">-</b></div><div class="kv"><span>Role</span><b id="pfRole">-</b></div><div class="kv"><span>Minecraft accounts</span><b id="pfLimit">-</b></div><div class="kv"><span>Discord</span><b id="pfDiscord">-</b></div></div>
       </div>
       <div class="panel"><div class="head"><div><p class="eyebrow">Security</p><h3>Change password</h3></div></div>
         <form id="changePassword" class="form-grid">
@@ -232,8 +264,8 @@
 
 <div id="toast" class="toast" hidden></div>
 <script src="/socket.io/socket.io.js"></script>
-<script src="/icons.js?v=mn-2"></script>
-<script src="/app.js?v=mn-2"></script>
-<script src="/accounts.js?v=mn-2"></script>
+<script src="/icons.js?v=mn-3"></script>
+<script src="/app.js?v=mn-3"></script>
+<script src="/accounts.js?v=mn-3"></script>
 </body>
 </html>

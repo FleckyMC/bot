@@ -8,7 +8,7 @@
 // their own bots. Everything global (area, settings, version, bot settings) stays admin-only.
 function authorizeAction(user, type, payload, owned) {
   if (!user) throw new Error('Session expired. Sign in again.');
-  if (user.role === 'admin') return;
+  if (user.role === 'admin' || user.role === 'founder') return;
   const name = payload && typeof payload.name === 'string' ? payload.name : '';
   const namesAllOwned = (names) => Array.isArray(names) && names.length > 0 && names.every((n) => typeof n === 'string' && owned(n, user));
 

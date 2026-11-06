@@ -11,7 +11,7 @@ let invBot = null;
 const invSel = new Map(); // slot -> item name (for stale-selection checks)
 const picked = new Set(); // bots ticked on the Bots tab
 const sigs = {};
-const TABS = ['overview', 'bots', 'inventory', 'mining', 'automation', 'console', 'accounts', 'settings'];
+const TABS = ['overview', 'bots', 'inventory', 'mining', 'automation', 'console', 'accounts', 'founder', 'settings'];
 
 // ------------------------------------------------------------ helpers
 
@@ -662,9 +662,14 @@ socket.on('log', addLog);
 socket.on('logs_cleared', () => logBox.replaceChildren());
 socket.on('connect_error', (e) => {
   if (e && e.message === 'unauthorized') location.href = '/login';
+  else if (e && (e.message === 'expired' || e.message === 'discord_required')) location.href = '/gate.html';
   else toast('Connection to the dashboard interrupted', true);
 });
-socket.on('disconnect', () => toast('Disconnected from the dashboard. Reconnecting…', true));
+socket.on('disconnect', (reason) => {
+  // The server closes the socket of accounts that expired, were deleted or lost their Discord link.
+  if (reason === 'io server disconnect') { setTimeout(() => { location.reload(); }, 800); return; }
+  toast('Disconnected from the dashboard. Reconnecting…', true);
+});
 
 // ------------------------------------------------------------ buttons
 
@@ -732,3 +737,12 @@ function sendChat() {
 }
 $('btnChat').onclick = sendChat;
 $('chatText').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
+
+// Copies text to the clipboard (also works on plain http, where navigator.clipboard is unavailable).
+async function copyText(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(text);
+    else { const t = document.createElement('textarea'); t.value = text; t.style.position = 'fixed'; t.style.opacity = '0'; document.body.append(t); t.select(); const ok = document.execCommand('copy'); t.remove(); if (!ok) throw new Error('copy failed'); }
+    toast('Copied');
+  } catch { toast('Copy failed. Please select the text and copy it manually.', true); }
+}

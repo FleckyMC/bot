@@ -11,9 +11,9 @@ const ENV_FILE = path.join(ROOT, '.env');
 
 // Load .env; if no password is set, one is generated and saved to .env
 require('dotenv').config({ path: ENV_FILE, quiet: true });
-if (!process.env.DASHBOARD_PASSWORD) {
+if (!process.env.FOUNDER_PASSWORD && !process.env.DASHBOARD_PASSWORD) {
   const pw = crypto.randomBytes(9).toString('base64url');
-  const user = process.env.DASHBOARD_USER || 'admin';
+  const user = process.env.FOUNDER_USER || process.env.DASHBOARD_USER || 'admin';
   fs.appendFileSync(ENV_FILE, `${fs.existsSync(ENV_FILE) && fs.readFileSync(ENV_FILE, 'utf8').endsWith('\n') === false ? '\n' : ''}DASHBOARD_USER=${user}\nDASHBOARD_PASSWORD=${pw}\n`);
   process.env.DASHBOARD_USER = user;
   process.env.DASHBOARD_PASSWORD = pw;
@@ -25,28 +25,55 @@ if (!process.env.DASHBOARD_PASSWORD) {
   console.log('==============================================');
 }
 
-const USER = process.env.DASHBOARD_USER || 'admin';
-const PASSWORD = process.env.DASHBOARD_PASSWORD;
+// The founder comes from FOUNDER_USER / FOUNDER_PASSWORD (the old DASHBOARD_* names still work).
+const FOUNDER_USER = process.env.FOUNDER_USER || process.env.DASHBOARD_USER || 'admin';
+const FOUNDER_PASSWORD = process.env.FOUNDER_PASSWORD || process.env.DASHBOARD_PASSWORD;
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 const VERSION = process.env.MC_VERSION || 'auto';
 const FORCE_SECURE = String(process.env.COOKIE_SECURE).toLowerCase() === 'true';
 
 const auth = require('./auth');
+const perms = require('./permissions');
 const { authorizeAction } = require('./access');
 const { BotManager } = require('./botManager');
-const { normalizeReconnectSettings } = require('./botSettings');
+const { createFounderStore } = require('./founder');
+const { createAudit } = require('./audit');
+const { notifyAccountEvent, buildAccountPayload } = require('./accountNotify');
+const { sendWebhook } = require('./deathNotify');
+const discordLink = require('./discordLink');
+const { runLifecycle } = require('./lifecycle');
 
-auth.configure(path.join(ROOT, 'data', 'users.json'), USER, PASSWORD);
+const seeded = auth.configure(path.join(ROOT, 'data', 'users.json'), FOUNDER_USER, FOUNDER_PASSWORD, { admins: auth.parseAdminAccounts(process.env.ADMIN_ACCOUNTS) });
+if (seeded && seeded.skipped && seeded.skipped.length) console.log(`ADMIN_ACCOUNTS: skipped ${seeded.skipped.join(', ')} (user names need 3-32 characters, passwords at least 10)`);
 const manager = new BotManager({ dataDir: path.join(ROOT, 'data'), version: VERSION });
-const isAdmin = (user) => !!user && user.role === 'admin';
-// Bots connected by a regular user belong to that user; everything else is shared (admin) and only the admin controls it.
-const ownerOf = (w) => auth.getUsers().find((u) => u.role !== 'admin' && Array.isArray(u.botNames) && u.botNames.includes(w.name)) || null;
-manager.isShared = (w) => !ownerOf(w);
-manager.on('account_added', ({ name, ownerId }) => { const u = ownerId && auth.getUsers().find((x) => x.id === ownerId); if (u && u.role !== 'admin') auth.addOwnedBot(ownerId, name); });
+const founder = createFounderStore(path.join(ROOT, 'data', 'founder.json'));
+const audit = createAudit(path.join(ROOT, 'data', 'audit.json'));
+
+const isAdmin = perms.isStaff; // admin or founder
+// Bots connected by a regular user belong to that user. Bots of admins/the founder (or unassigned ones) are shared.
+const ownerOf = (w) => auth.getUsers().find((u) => Array.isArray(u.botNames) && u.botNames.includes(w.name)) || null;
+manager.isShared = (w) => { const o = ownerOf(w); return !o || o.role !== 'user'; };
+manager.on('account_added', ({ name, ownerId }) => { if (ownerId) auth.addOwnedBot(ownerId, name); });
 manager.on('bot_removed', ({ name }) => auth.removeOwnedBots([name]));
-const usedSlots = (user) => (Array.isArray(user.botNames) ? user.botNames.filter((n) => manager.workers.has(n)).length : 0) + manager.pendingCountFor(user.id);
-const requireAdmin = (req, res, next) => isAdmin(auth.sessionUser(auth.tokenFrom(req))) ? next() : res.status(403).json({ error: 'Admin only' });
+const ownedNames = (user) => (Array.isArray(user.botNames) ? user.botNames.filter((n) => manager.workers.has(n)) : []);
+const usedSlots = (user) => ownedNames(user).length + manager.pendingCountFor(user.id);
+
+// ---- account events: written to the audit log and sent to the founder's webhook
+const notify = (info) => notifyAccountEvent(founder, { at: Date.now(), ...info }, { onError: (e) => manager.log('system', `Account webhook failed: ${e.message}`, 'warn') });
+const record = (type, actor, target, detail, extra = {}) => { audit.add({ type, actor, target, detail }); return notify({ type, actor, target, ...extra }); };
+
+// Why an account may not use the dashboard right now (null = fine).
+const lockReason = (u) => {
+  if (!u) return null;
+  if (auth.accountState(u) === 'grace') return 'expired';
+  if (u.role !== 'founder' && founder.discordConfigured() && !u.discord) return 'discord';
+  return null;
+};
+const removeUserCompletely = (target) => {
+  for (const n of ownedNames(target)) { try { manager.removeBot(n); } catch { /* already gone */ } }
+  return auth.deleteUser(target.id);
+};
 
 const app = express();
 app.set('trust proxy', 'loopback');
@@ -55,6 +82,7 @@ const server = http.createServer(app);
 const io = new Server(server, { serveClient: true });
 
 const isSecure = (req) => FORCE_SECURE || req.secure || req.headers['x-forwarded-proto'] === 'https';
+const actorOf = (req) => auth.sessionUser(auth.tokenFrom(req));
 
 app.use((req, res, next) => {
   res.set({
@@ -85,17 +113,154 @@ app.post('/login', (req, res) => {
   res.set('Set-Cookie', auth.cookieHeader(r.token, isSecure(req)));
   res.redirect('/');
 });
-
-app.get('/api/me', (req, res) => { const user = auth.sessionUser(auth.tokenFrom(req)); if (!user) return res.status(401).json({error:'Not signed in'}); res.json({user:auth.publicUser(user)}); });
-app.get('/api/admin/users', (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, requireAdmin, (req, res) => res.json({users:auth.getUsers().map((u) => ({ ...auth.publicUser(u), botCount: usedSlots(u), bots: (u.botNames || []).filter((n) => manager.workers.has(n)).map((n) => ({ name: n, accountName: manager.workers.get(n).accountName || manager.accountNames[n] || '' })) }))}));
-app.post('/api/admin/users', express.json({limit:'16kb'}), (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, requireAdmin, (req, res) => { try { const { botNames, ...body } = req.body || {}; res.status(201).json({user:auth.createUser(body)}); } catch(e) { res.status(400).json({error:e.message}); } });
-app.patch('/api/admin/users/:id', express.json({limit:'16kb'}), (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, requireAdmin, (req, res) => { try { const { botNames, ...body } = req.body || {}; res.json({user:auth.updateUser(req.params.id, body)}); } catch(e) { res.status(400).json({error:e.message}); } });
-app.delete('/api/admin/users/:id', (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, requireAdmin, (req, res) => { try { const victim = auth.getUsers().find((x) => x.id === req.params.id); const theirs = victim && Array.isArray(victim.botNames) ? [...victim.botNames] : []; auth.deleteUser(req.params.id); for (const n of theirs) { try { manager.removeBot(n); } catch { /* already gone */ } } res.status(204).end(); } catch(e) { res.status(400).json({error:e.message}); } });
-app.post('/api/password', express.json({limit:'8kb'}), (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, (req, res) => { try { const u=auth.sessionUser(auth.tokenFrom(req)); auth.changePassword(u.id, req.body.currentPassword, req.body.newPassword); res.json({ok:true}); } catch(e) { res.status(400).json({error:e.message}); } });
 app.post('/logout', (req, res) => {
   auth.logout(auth.tokenFrom(req));
   res.set('Set-Cookie', auth.cookieHeader('', isSecure(req), true));
   res.redirect('/login');
+});
+
+// ---- Signed-in, but allowed even while the account is locked (the gate page needs these)
+const signedIn = (req, res, next) => { const u = actorOf(req); if (!u) return res.status(401).json({ error: 'Not signed in' }); req.actor = u; next(); };
+app.get('/api/me', signedIn, (req, res) => {
+  const u = req.actor;
+  res.json({ user: auth.publicUser(u), lock: lockReason(u), discordConfigured: founder.discordConfigured() });
+});
+
+// ---- Discord account linking (OAuth2)
+const oauthStates = new Map();
+const gateError = (res, message) => res.redirect('/gate.html?msg=' + encodeURIComponent(String(message).slice(0, 160)));
+app.get('/auth/discord', signedIn, (req, res) => {
+  const u = req.actor;
+  if (!founder.discordConfigured()) return gateError(res, 'Discord linking is not set up yet. Please ask the founder.');
+  if (u.discord) return res.redirect('/');
+  const now = Date.now();
+  for (const [k, v] of oauthStates) if (v.exp < now) oauthStates.delete(k);
+  const state = crypto.randomBytes(24).toString('hex');
+  oauthStates.set(state, { userId: u.id, exp: now + 10 * 60 * 1000 });
+  const d = founder.get().discord;
+  res.redirect(discordLink.authorizeUrl({ clientId: d.clientId, redirectUri: founder.redirectUri(), state }));
+});
+app.get('/auth/discord/callback', signedIn, async (req, res) => {
+  const u = req.actor;
+  const state = String(req.query.state || '');
+  const saved = oauthStates.get(state);
+  oauthStates.delete(state);
+  if (req.query.error) return gateError(res, 'Discord linking was cancelled.');
+  if (!saved || saved.userId !== u.id || saved.exp < Date.now()) return gateError(res, 'The sign-in expired. Please try again.');
+  try {
+    const d = founder.get().discord;
+    const link = await discordLink.completeLink({ clientId: d.clientId, clientSecret: d.clientSecret, redirectUri: founder.redirectUri(), code: String(req.query.code || '') });
+    const { previous, user } = auth.setDiscord(u.id, link);
+    if (previous) record('discord_changed', null, u, `${previous.username} → ${link.username}`, { from: previous.username, to: link.username });
+    else audit.add({ type: 'discord_linked', target: u, detail: `Linked Discord account ${link.username}` });
+    res.redirect('/');
+  } catch (e) { gateError(res, e.message); }
+});
+
+// ---- JSON API (signed in, account not locked)
+const guard = (allowed) => (req, res, next) => {
+  const u = actorOf(req);
+  if (!u) return res.status(401).json({ error: 'Not signed in' });
+  if (lockReason(u)) return res.status(403).json({ error: 'Account locked' });
+  if (!allowed(u)) return res.status(403).json({ error: 'Not allowed' });
+  req.actor = u;
+  next();
+};
+const anyUser = guard(() => true);
+const staffOnly = guard(perms.isStaff);
+const founderOnly = guard(perms.isFounder);
+const json = express.json({ limit: '16kb' });
+const fail = (res, e, code = 400) => res.status(code).json({ error: e.message });
+const targetOf = (req) => auth.getUsers().find((u) => u.id === req.params.id);
+const manageable = (req, res) => {
+  const t = targetOf(req);
+  if (!t || !perms.canSee(req.actor, t)) { fail(res, new Error('User not found.'), 404); return null; }
+  if (!perms.canManage(req.actor, t)) { fail(res, new Error(t.role === 'founder' ? 'The founder cannot be changed.' : 'Admins cannot change other admins. Only the founder can.'), 403); return null; }
+  return t;
+};
+
+app.get('/api/admin/users', staffOnly, (req, res) => {
+  const actor = req.actor;
+  res.json({
+    me: { id: actor.id, role: actor.role },
+    users: auth.getUsers().filter((u) => perms.canSee(actor, u)).map((u) => ({
+      ...auth.publicUser(u),
+      botCount: usedSlots(u),
+      bots: ownedNames(u).map((n) => ({ name: n, accountName: manager.workers.get(n).accountName || manager.accountNames[n] || '' })),
+      can: { manage: perms.canManage(actor, u), remove: perms.canDelete(actor, u), viewAs: perms.canViewAs(actor, u) },
+    })),
+  });
+});
+app.post('/api/admin/users', json, staffOnly, (req, res) => {
+  try {
+    const { botNames, role, ...body } = req.body || {};
+    const wanted = role === 'admin' ? 'admin' : 'user';
+    if (!perms.canCreate(req.actor, wanted)) return fail(res, new Error('Only the founder can create admin accounts.'), 403);
+    const created = auth.createUser({ ...body, role: wanted });
+    record('created', req.actor, created, `${wanted} account created`, { expiresAt: created.expiresAt, at: Date.now() });
+    res.status(201).json({ user: created });
+  } catch (e) { fail(res, e); }
+});
+app.patch('/api/admin/users/:id', json, staffOnly, (req, res) => {
+  const target = manageable(req, res);
+  if (!target) return;
+  try {
+    const { username, botLimit, expiresAt } = req.body || {};
+    let current = auth.publicUser(target);
+    if (username !== undefined && String(username).trim() !== target.username) {
+      const r = auth.renameUser(target.id, username);
+      current = r.user;
+      record('renamed', req.actor, current, `${r.before} → ${current.username}`, { from: r.before, to: current.username });
+    }
+    const patch = {};
+    if (botLimit !== undefined) patch.botLimit = botLimit;
+    if (expiresAt !== undefined) patch.expiresAt = expiresAt;
+    if (Object.keys(patch).length) {
+      const before = auth.publicUser(target);
+      current = auth.updateUser(target.id, patch);
+      if (patch.botLimit !== undefined && current.botLimit !== before.botLimit) audit.add({ type: 'limit_changed', actor: req.actor, target: current, detail: `Account limit ${before.botLimit} → ${current.botLimit}` });
+      if (patch.expiresAt !== undefined && current.expiresAt !== before.expiresAt) audit.add({ type: 'lifetime_changed', actor: req.actor, target: current, detail: current.expiresAt ? `Membership now ends ${new Date(current.expiresAt).toISOString().slice(0, 16).replace('T', ' ')} UTC` : 'Membership is now permanent' });
+    }
+    res.json({ user: current });
+  } catch (e) { fail(res, e); }
+});
+app.post('/api/admin/users/:id/add-time', json, staffOnly, (req, res) => {
+  const target = manageable(req, res);
+  if (!target) return;
+  try {
+    const days = Number(req.body && req.body.days);
+    const r = auth.addTime(target.id, days);
+    audit.add({ type: 'time_added', actor: req.actor, target: r.user, detail: `Added ${days} day${days === 1 ? '' : 's'}${r.wasState !== 'active' ? ' (account was locked and is active again)' : ''}` });
+    notify({ type: 'time_added', actor: req.actor, target: r.user, days, expiresAt: r.user.expiresAt });
+    res.json({ user: r.user });
+  } catch (e) { fail(res, e); }
+});
+app.delete('/api/admin/users/:id', staffOnly, (req, res) => {
+  const t = targetOf(req);
+  if (!t || !perms.canSee(req.actor, t)) return fail(res, new Error('User not found.'), 404);
+  if (!perms.canDelete(req.actor, t)) return fail(res, new Error('Admins cannot delete other admins. Only the founder can.'), 403);
+  try {
+    const gone = removeUserCompletely(t);
+    record('deleted', req.actor, gone, `${gone.role} account deleted`, {});
+    res.status(204).end();
+  } catch (e) { fail(res, e); }
+});
+app.get('/api/admin/audit', staffOnly, (req, res) => {
+  res.json({ entries: audit.list({ limit: Math.min(500, Number(req.query.limit) || 200), viewer: req.actor.role }) });
+});
+
+app.get('/api/founder/settings', founderOnly, (req, res) => res.json(founder.publicView()));
+app.put('/api/founder/settings', json, founderOnly, (req, res) => {
+  try { founder.update(req.body || {}); res.json(founder.publicView()); } catch (e) { fail(res, e); }
+});
+app.post('/api/founder/webhook-test', founderOnly, async (req, res) => {
+  const w = founder.get().accountWebhook;
+  if (!w.url) return fail(res, new Error('Save a webhook URL first.'));
+  try { await sendWebhook(w.url, buildAccountPayload({ type: 'test', actor: req.actor, target: req.actor, at: Date.now() }, w.url)); res.json({ ok: true }); } catch (e) { fail(res, e); }
+});
+
+app.post('/api/password', json, anyUser, (req, res) => {
+  try { auth.changePassword(req.actor.id, req.body.currentPassword, req.body.newPassword); res.json({ ok: true }); } catch (e) { fail(res, e); }
 });
 
 // ---- Everything else requires sign-in
@@ -104,12 +269,20 @@ app.use((req, res, next) => {
   if (req.method === 'GET' && req.accepts('html')) return res.redirect('/login');
   res.status(401).send('Not signed in');
 });
+// Locked accounts (membership ended, or Discord not linked yet) only reach the gate page.
+app.use((req, res, next) => {
+  const lock = lockReason(actorOf(req));
+  if (!lock) return req.path === '/gate.html' ? res.redirect('/') : next();
+  if (req.path === '/gate.html' || req.path === '/gate.js') return next();
+  if (req.method === 'GET' && req.accepts('html')) return res.redirect('/gate.html');
+  res.status(403).json({ error: lock === 'expired' ? 'Your membership has ended.' : 'Link your Discord account first.' });
+});
 app.use(express.static(path.join(ROOT, 'public'), { index: 'index.html', extensions: ['html'] }));
 
 // ---- Socket.io: check sign-in cookie and origin
 const socketUserById = new Map();
 const viewAsBySocket = new Map();
-const userForSocket = socket => auth.sessionUser(auth.tokenFrom(socket.request));
+const userForSocket = (socket) => auth.sessionUser(auth.tokenFrom(socket.request));
 io.use((socket, next) => {
   const req = socket.request;
   const origin = req.headers.origin;
@@ -119,6 +292,8 @@ io.use((socket, next) => {
   }
   const user = auth.sessionUser(auth.tokenFrom(req));
   if (!user) return next(new Error('unauthorized'));
+  const lock = lockReason(user);
+  if (lock) return next(new Error(lock === 'expired' ? 'expired' : 'discord_required'));
   socketUserById.set(socket.id, user.id);
   next();
 });
@@ -165,12 +340,14 @@ const snapshotFor = (user) => {
   const snap = manager.snapshot();
   const admin = isAdmin(user);
   snap.isAdmin = admin;
-  const everyone = auth.getUsers();
   snap.me = { id: user.id, username: user.username, role: user.role };
-  const limit = user.botLimit || 0;
-  snap.limits = { used: usedSlots(user), limit, unlimited: admin };
+  snap.limits = { used: usedSlots(user), limit: user.botLimit || 0, unlimited: admin };
   if (admin) {
-    snap.bots = snap.bots.map((b) => { const o = everyone.find((u) => u.role !== 'admin' && Array.isArray(u.botNames) && u.botNames.includes(b.name)); return { ...b, owner: o ? o.username : null }; });
+    const everyone = auth.getUsers();
+    snap.bots = snap.bots.map((b) => {
+      const o = everyone.find((u) => Array.isArray(u.botNames) && u.botNames.includes(b.name));
+      return { ...b, owner: o && o.role === 'user' ? o.username : null };
+    });
     return snap;
   }
   snap.bots = snap.bots.filter((b) => owned(b.name, user));
@@ -178,34 +355,35 @@ const snapshotFor = (user) => {
   snap.pendingSignIns = (snap.pendingSignIns || []).filter((x) => x.ownerId === user.id);
   return { ...snap, connection: null, area: null, settings: {}, mining: false };
 };
+
 io.on('connection', (socket) => {
   const originalUser = () => userForSocket(socket);
-  const currentUser = () => { const original=originalUser(); const target=viewAsBySocket.get(socket.id); return isAdmin(original)&&target ? auth.getUsers().find(u=>u.id===target) || original : original; };
+  const currentUser = () => { const original = originalUser(); const target = viewAsBySocket.get(socket.id); return isAdmin(original) && target ? auth.getUsers().find((u) => u.id === target) || original : original; };
   socket.emit('init', { state: snapshotFor(currentUser()), logs: isAdmin(currentUser()) ? manager.logs.slice(-200) : [] });
   socket.on('action', async (type, payload, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     const user = currentUser();
     const original = originalUser();
-    if (!original) {
-      reply({ok:false,error:'Session expired. Sign in again.'});
+    if (!original || lockReason(original)) {
+      reply({ ok: false, error: 'Session expired. Sign in again.' });
       socket.disconnect(true);
       return;
     }
     if (type === 'view_as') {
-      if (!isAdmin(original)) return reply({ok:false,error:'Admin only'});
-      const target = auth.getUsers().find(u=>u.id===String(payload && payload.userId || ''));
-      if (!target) return reply({ok:false,error:'Account not found'});
-      viewAsBySocket.set(socket.id,target.id);
-      socket.emit('view_as_changed',{active:true,username:target.username});
-      socket.emit('state',snapshotFor(target));
-      return reply({ok:true});
+      if (!isAdmin(original)) return reply({ ok: false, error: 'Admin only' });
+      const target = auth.getUsers().find((u) => u.id === String(payload && payload.userId || ''));
+      if (!target || !perms.canViewAs(original, target)) return reply({ ok: false, error: 'Account not found' });
+      viewAsBySocket.set(socket.id, target.id);
+      socket.emit('view_as_changed', { active: true, username: target.username });
+      socket.emit('state', snapshotFor(target));
+      return reply({ ok: true });
     }
     if (type === 'exit_view_as') {
-      if (!isAdmin(original)) return reply({ok:false,error:'Admin only'});
+      if (!isAdmin(original)) return reply({ ok: false, error: 'Admin only' });
       viewAsBySocket.delete(socket.id);
-      socket.emit('view_as_changed',{active:false});
-      socket.emit('state',snapshotFor(original));
-      return reply({ok:true});
+      socket.emit('view_as_changed', { active: false });
+      socket.emit('state', snapshotFor(original));
+      return reply({ ok: true });
     }
     if (type === 'stop' && !isAdmin(user)) {
       try {
@@ -214,9 +392,9 @@ io.on('connection', (socket) => {
           .filter((w) => assigned.has(String(w.name).toLowerCase()) || assigned.has(String(w.accountName || manager.accountNames[w.name] || '').toLowerCase()))
           .map((w) => w.name);
         manager.stopBots(internalNames);
-        reply({ok:true});
+        reply({ ok: true });
       } catch (e) {
-        reply({ok:false,error:e.message});
+        reply({ ok: false, error: e.message });
       }
       return;
     }
@@ -233,10 +411,52 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => { socketUserById.delete(socket.id); viewAsBySocket.delete(socket.id); });
 });
 
-manager.on('log', (entry) => { for (const socket of io.sockets.sockets.values()) { const original=userForSocket(socket); if (!original) { socket.disconnect(true); continue; } const u=isAdmin(original)&&viewAsBySocket.has(socket.id)?auth.getUsers().find(x=>x.id===viewAsBySocket.get(socket.id)):original; if (isAdmin(original) || owned(entry.source, u)) socket.emit('log', entry); } });
-const broadcastState = () => { for (const socket of io.sockets.sockets.values()) { const original=userForSocket(socket); if (!original) { socket.disconnect(true); continue; } const u=isAdmin(original)&&viewAsBySocket.has(socket.id)?auth.getUsers().find(x=>x.id===viewAsBySocket.get(socket.id))||original:original; socket.emit('state', snapshotFor(u)); } };
+// Sockets of accounts that are no longer allowed in (expired, deleted, signed out) are closed.
+const liveUser = (socket) => {
+  const original = userForSocket(socket);
+  if (!original || lockReason(original)) { socket.disconnect(true); return null; }
+  const viewing = isAdmin(original) && viewAsBySocket.has(socket.id) ? auth.getUsers().find((x) => x.id === viewAsBySocket.get(socket.id)) : null;
+  return { original, effective: viewing || original };
+};
+manager.on('log', (entry) => {
+  for (const socket of io.sockets.sockets.values()) {
+    const who = liveUser(socket);
+    if (who && (isAdmin(who.effective) || owned(entry.source, who.effective))) socket.emit('log', entry);
+  }
+});
+const broadcastState = () => {
+  for (const socket of io.sockets.sockets.values()) {
+    const who = liveUser(socket);
+    if (who) socket.emit('state', snapshotFor(who.effective));
+  }
+};
 manager.on('change', broadcastState);
 setInterval(() => { if (io.engine.clientsCount) broadcastState(); }, 1000).unref();
+
+// ---- Background jobs (the broadcast timer above must stay the first one)
+// Membership lifecycle: lock the moment time runs out, delete after 24 h without renewal.
+setInterval(() => {
+  try { const r = runLifecycle({ auth, manager, audit, notify }); if (r.locked.length || r.deleted.length) broadcastState(); }
+  catch (e) { manager.log('system', `Lifecycle job failed: ${e.message}`, 'error'); }
+}, 60 * 1000).unref();
+// Discord: a user who revokes the authorization loses the link and has to link again.
+let checkingDiscord = false;
+setInterval(async () => {
+  if (checkingDiscord || !founder.discordConfigured()) return;
+  checkingDiscord = true;
+  try {
+    const d = founder.get().discord;
+    for (const u of auth.getUsers().filter((x) => x.discord)) {
+      const r = await discordLink.checkLink({ clientId: d.clientId, clientSecret: d.clientSecret }, u.discord);
+      if (r.status === 'ok' && r.patch && Object.keys(r.patch).length) auth.updateDiscordTokens(u.id, r.patch);
+      else if (r.status === 'revoked') {
+        const old = auth.clearDiscord(u.id);
+        if (old) record('discord_revoked', null, u, `Authorization for ${old.username} was revoked`, { from: old.username });
+      }
+    }
+  } catch (e) { manager.log('system', `Discord check failed: ${e.message}`, 'warn'); }
+  checkingDiscord = false;
+}, 15 * 60 * 1000).unref();
 
 process.on('unhandledRejection', (e) => manager.log('system', `Unhandled error: ${e && e.message ? e.message : e}`, 'error'));
 process.on('uncaughtException', (e) => manager.log('system', `Error: ${e && e.message ? e.message : e}`, 'error'));

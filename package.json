@@ -5,7 +5,7 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "test": "node test/planner.test.js && node test/physicsFix.test.js && node --test test/regressions.test.js test/autoEat.test.js test/death.test.js test/sneak.test.js test/botSettings.test.js test/drops.test.js"
+    "test": "node test/planner.test.js && node test/physicsFix.test.js && node --test test/regressions.test.js test/autoEat.test.js test/death.test.js test/sneak.test.js test/botSettings.test.js test/drops.test.js test/accounts.test.js"
   },
   "engines": {
     "node": ">=22"

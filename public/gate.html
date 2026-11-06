@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#09060f">
+  <title>Meltrovia Network</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="stylesheet" href="/login.css">
+  <style>.box{display:grid;gap:14px}.box a.btn{display:block;text-align:center;text-decoration:none;font-weight:700;padding:12px;border-radius:10px;background:linear-gradient(135deg,#a66bff,#8247f5);color:#fff;box-shadow:0 8px 24px rgba(130,71,245,.4)}.box a.btn.discord{background:linear-gradient(135deg,#6f7bff,#4f5bd5)}.box button.ghost{background:transparent;border:1px solid var(--line);box-shadow:none}.msg{color:var(--muted);font-size:14px;text-align:center}.big{font:700 28px 'Chakra Petch',sans-serif;text-align:center}</style>
+</head>
+<body>
+  <main>
+    <div class="box" style="background:linear-gradient(180deg,var(--card),#0f0a1b);border:1px solid var(--line);border-radius:20px;padding:32px 28px;box-shadow:0 30px 80px rgba(5,0,20,.6)">
+      <img src="/logo.png" width="96" height="96" alt="Meltrovia Network logo" style="justify-self:center;border-radius:50%">
+      <div class="title"><h1>Meltrovia Network</h1><p id="sub">One moment…</p></div>
+      <div class="err" id="err" role="alert"></div>
+      <div id="content" class="box"></div>
+      <form method="post" action="/logout"><button class="ghost" type="submit" style="width:100%">Log out</button></form>
+    </div>
+  </main>
+  <script src="/gate.js"></script>
+</body>
+</html>
