@@ -191,8 +191,10 @@
       text(s, 'description', 'Panel description', { multiline: true, maxLength: 2000 }),
       el('b', '', 'Payment methods'),
       listEditor(s.methods, () => ({ id: uid(), label: '', description: '' }), (m) => [grid('two', text(m, 'label', 'Name', { maxLength: 80, placeholder: 'PayPal' }), text(m, 'description', 'Short description', { maxLength: 100 }))], '+ Add payment method', 25),
-      el('b', '', 'Durations & prices'),
-      listEditor(s.plans, () => ({ id: uid(), label: '', description: '', days: 7, price: 0 }), (p) => [grid('four', text(p, 'label', 'Name', { maxLength: 80, placeholder: '1 week' }), text(p, 'days', 'Days', { type: 'number', min: 1, max: 3650 }), text(p, 'price', 'Price', { type: 'number', min: 0, step: '0.01' }), text(p, 'description', 'Description', { maxLength: 100 }))], '+ Add duration', 25),
+      el('b', '', 'Price per unit'),
+      note('Members choose how many units they want (for example 5 weeks). The total is calculated as amount × price and shown in the ticket. Example: Name “week”, Days 7, Price 1.00.'),
+      grid('two', text(s, 'minQuantity', 'Minimum amount', { type: 'number', min: 1, max: 1000 }), text(s, 'maxQuantity', 'Maximum amount', { type: 'number', min: 1, max: 1000 })),
+      listEditor(s.plans, () => ({ id: uid(), label: '', description: '', days: 7, price: 0 }), (p) => [grid('four', text(p, 'label', 'Unit name (singular)', { maxLength: 80, placeholder: 'week' }), text(p, 'days', 'Days per unit', { type: 'number', min: 1, max: 3650 }), text(p, 'price', 'Price per unit', { type: 'number', min: 0, step: '0.01' }), text(p, 'description', 'Description', { maxLength: 100 }))], '+ Add unit (e.g. month)', 25),
       el('b', '', 'Discounts'),
       note('The highest active discount that applies is used for new orders. Admins can still set a custom discount inside a ticket.'),
       listEditor(s.discounts, () => ({ id: uid(), label: '', percent: 10, active: true, planIds: [] }), (d) => {

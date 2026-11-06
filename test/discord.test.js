@@ -119,17 +119,17 @@ const staff = { id: ID.staff, username: 'Sam', tag: 'Sam#0' };
 
 test('purchase flow: order → discount → complete → rating → close, and cancel closes the ticket', async () => {
   const w = world();
-  const pick = w.select(buyer, 'shop:pay:week', ['paypal']);
+  const pick = w.select(buyer, 'shop:pay:week:1', ['paypal']);
   await w.handle(pick);
   const p = w.data.purchases()[0];
-  assert.equal(p.status, 'open'); assert.equal(p.total, 3); assert.equal(p.methodLabel, 'PayPal');
+  assert.equal(p.status, 'open'); assert.equal(p.total, 1); assert.equal(p.methodLabel, 'PayPal');
   const channel = w.channels.get(p.channelId);
   assert.equal(channel.opts.name, 'ticket-from-bob');
   const embed = channel.sent[0].embeds[0].toJSON();
   assert.match(JSON.stringify(embed), /Current total/);
 
   // a second ticket is blocked by the limit
-  const again = w.select(buyer, 'shop:pay:week', ['paypal']);
+  const again = w.select(buyer, 'shop:pay:week:1', ['paypal']);
   await w.handle(again);
   assert.match(again.updates[0].content, /already have an open ticket/);
   assert.equal(w.data.purchases().length, 1);
@@ -143,7 +143,7 @@ test('purchase flow: order → discount → complete → rating → close, and c
   // admin discount via modal changes the total
   const disc = w.modal(staff, 'shop:discountmodal', channel, { percent: '50' }, [ID.admin]);
   await w.handle(disc);
-  assert.equal(w.data.purchase(p.id).total, 1.5);
+  assert.equal(w.data.purchase(p.id).total, 0.5);
   const bad = w.modal(staff, 'shop:discountmodal', channel, { percent: '150' }, [ID.admin]);
   await w.handle(bad);
   assert.match(bad.replies[0].content, /between 0 and 100/);
@@ -195,7 +195,7 @@ test('purchase flow: order → discount → complete → rating → close, and c
   assert.equal(w.data.openTicketsFor(ID.buyer).length, 0);
 
   // cancelled purchase: ticket closed, no stats
-  await w.handle(w.select(buyer, 'shop:pay:week', ['paypal']));
+  await w.handle(w.select(buyer, 'shop:pay:week:1', ['paypal']));
   const p2 = w.data.purchases()[1];
   const ch2 = w.channels.get(p2.channelId);
   global.setTimeout = (fn) => { fn(); return 0; };
@@ -338,4 +338,39 @@ test('honeypot warning can be posted', async () => {
   w.config.replace({ honeypot: { enabled: true, channelId: ID.ratings } });
   await w.bot.postPanel('honeypot');
   assert.match(JSON.stringify(w.channels.get(ID.ratings).sent[0].embeds[0].toJSON()), /kicked from the server/);
+});
+
+test('shop: the buyer enters the amount and the total is amount × price per unit', async () => {
+  const w = world();
+  w.config.replace({ shop: { plans: [{ id: 'week', label: '1 week', days: 7, price: 1 }], minQuantity: 1, maxQuantity: 52 } });
+  assert.equal(w.config.get().shop.plans[0].label, 'week');
+  // choosing the unit opens a modal asking how many
+  const pick = w.select(buyer, 'shop:plan', ['week']);
+  await w.handle(pick);
+  assert.match(pick.modal.toJSON().components[0].components[0].label, /How many weeks/);
+  for (const bad of ['0', '99', 'abc', '2.5', '']) {
+    const m = w.modal(buyer, 'shop:qty:week', null, { qty: bad });
+    await w.handle(m);
+    assert.match(m.replies[0].content, /whole number from 1 to 52/);
+  }
+  const ok = w.modal(buyer, 'shop:qty:week', null, { qty: '5' });
+  await w.handle(ok);
+  assert.match(ok.replies[0].content, /5 weeks.*35 days.*5\.00/);
+  const payRow = ok.replies[0].components[0].toJSON().components[0];
+  assert.equal(payRow.custom_id, 'shop:pay:week:5');
+  await w.handle(w.select(buyer, 'shop:pay:week:5', ['paypal']));
+  const p = w.data.purchases()[0];
+  assert.equal(p.planLabel, '5 weeks'); assert.equal(p.days, 35); assert.equal(p.basePrice, 5); assert.equal(p.total, 5);
+  const channel = w.channels.get(p.channelId);
+  assert.match(JSON.stringify(channel.sent[0].embeds[0].toJSON()), /5 weeks/);
+  // tampered amount in the custom id is rejected
+  const hack = w.select({ id: '555555555555555556', username: 'Eve', tag: 'E#0' }, 'shop:pay:week:9999', ['paypal']);
+  await w.handle(hack);
+  assert.match(hack.updates[0].content, /no longer exists/);
+  // an active discount applies to the whole amount
+  w.config.replace({ shop: { discounts: [{ label: 'Launch', percent: 20, active: true }] } });
+  const m2 = w.modal({ id: '555555555555555557', username: 'Fay', tag: 'F#0' }, 'shop:qty:week', null, { qty: '10' });
+  await w.handle(m2);
+  assert.match(m2.replies[0].content, /8\.00/);
+  assert.throws(() => w.config.replace({ shop: { minQuantity: 10, maxQuantity: 5 } }), /Minimum/);
 });

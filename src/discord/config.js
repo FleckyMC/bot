@@ -37,7 +37,8 @@ const defaults = () => ({
     channelId: '', title: 'Buy a membership', description: 'Choose how long you want to buy. A ticket will open with your order.', color: '#8b5cf6',
     placeholder: 'Select a duration…', categoryId: '', currency: '€',
     methods: [{ id: 'paypal', label: 'PayPal', description: 'Pay with PayPal' }],
-    plans: [{ id: 'week', label: '1 week', description: 'Seven days of access', days: 7, price: 3 }],
+    plans: [{ id: 'week', label: 'week', description: 'Seven days of access', days: 7, price: 1 }],
+    minQuantity: 1, maxQuantity: 52,
     discounts: [],
   },
   ratings: { channelId: '', feedbackChannelId: '' },
@@ -98,16 +99,20 @@ function sanitize(input = {}, prev = defaults()) {
 
   const s = i.shop || {}, ps = prev.shop;
   const methods = s.methods === undefined ? ps.methods : unique(list(s.methods, 25).map((m) => ({ id: slug(m.id), label: text(m.label, 80), description: text(m.description, 100) })).filter((m) => m.label));
-  const plans = s.plans === undefined ? ps.plans : unique(list(s.plans, 25).map((p) => ({ id: slug(p.id), label: text(p.label, 80), description: text(p.description, 100), days: Math.round(num(p.days, 1, 3650, 7)), price: Math.round(num(p.price, 0, 100000, 0) * 100) / 100 })).filter((p) => p.label));
+  const plans = s.plans === undefined ? ps.plans : unique(list(s.plans, 25).map((p) => ({ id: slug(p.id), label: text(p.label, 80).replace(/^1\s+/, ''), description: text(p.description, 100), days: Math.round(num(p.days, 1, 3650, 7)), price: Math.round(num(p.price, 0, 100000, 0) * 100) / 100 })).filter((p) => p.label));
   if (!methods.length) throw new Error('Add at least one payment method.');
   if (!plans.length) throw new Error('Add at least one duration/price.');
   const planIds = new Set(plans.map((p) => p.id));
+  const minQ = s.minQuantity === undefined ? (ps.minQuantity || 1) : Math.round(num(s.minQuantity, 1, 1000, 1)), maxQ = s.maxQuantity === undefined ? (ps.maxQuantity || 52) : Math.round(num(s.maxQuantity, 1, 1000, 52));
+  if (minQ > maxQ) throw new Error('Minimum amount cannot be larger than the maximum.');
   const discounts = s.discounts === undefined ? ps.discounts : unique(list(s.discounts, 25).map((x) => ({ id: slug(x.id), label: text(x.label, 60), percent: Math.round(num(x.percent, 1, 100, 10)), active: flag(x.active, true), planIds: (Array.isArray(x.planIds) ? x.planIds : []).filter((p) => planIds.has(p)) })).map((x) => ({ ...x, label: x.label || `${x.percent}% off` })));
   out.shop = {
     channelId: s.channelId === undefined ? ps.channelId : snow(s.channelId), title: s.title === undefined ? ps.title : text(s.title, 100, 'Buy a membership'),
     description: s.description === undefined ? ps.description : text(s.description, 2000), color: s.color === undefined ? ps.color : color(s.color),
     placeholder: s.placeholder === undefined ? ps.placeholder : text(s.placeholder, 100, 'Select a duration…'), categoryId: s.categoryId === undefined ? ps.categoryId : snow(s.categoryId),
     currency: s.currency === undefined ? ps.currency : text(s.currency, 4, '€'), methods, plans, discounts,
+    minQuantity: s.minQuantity === undefined ? (ps.minQuantity || 1) : Math.round(num(s.minQuantity, 1, 1000, 1)),
+    maxQuantity: s.maxQuantity === undefined ? (ps.maxQuantity || 52) : Math.round(num(s.maxQuantity, 1, 1000, 52)),
   };
 
   const r = i.ratings || {}, pr = prev.ratings;

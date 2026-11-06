@@ -1,5 +1,5 @@
 'use strict';
-const { quote, stars, parseStars, fillTemplate, ticketChannelName, durationLabel, money } = require('./util');
+const { quote, stars, parseStars, fillTemplate, ticketChannelName, unitText, money } = require('./util');
 
 /**
  * The Discord bot: welcome/leave messages, autorole, reaction roles, role toggle panels, tickets, the purchase panel
@@ -43,12 +43,12 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
 
   function shopPanel() {
     const s = cfg().shop;
-    const lines = s.plans.map((p) => { const q = quote(p, s.discounts); return `**${p.label}** (${p.days} days) — ${q.percent ? `~~${s.currency}${money(q.base)}~~ **${s.currency}${money(q.total)}** (-${q.percent}%)` : `**${s.currency}${money(q.base)}**`}`; });
+    const lines = s.plans.map((p) => { const q = quote(p, s.discounts); return `**Per ${p.label}** (${p.days} day${p.days === 1 ? '' : 's'}) — ${q.percent ? `~~${s.currency}${money(q.base)}~~ **${s.currency}${money(q.total)}** (-${q.percent}%)` : `**${s.currency}${money(q.base)}**`}`; });
     const embed = new D.EmbedBuilder().setTitle(s.title).setDescription(s.description).setColor(s.color)
-      .addFields({ name: 'Prices', value: lines.join('\n').slice(0, 1024) || '—' }, { name: 'Payment methods', value: s.methods.map((m) => m.label).join(', ').slice(0, 1024) || '—' });
+      .addFields({ name: 'Prices', value: (lines.join('\n') + `\nChoose how many you want (${s.minQuantity}–${s.maxQuantity}); the total is calculated for you.`).slice(0, 1024) }, { name: 'Payment methods', value: s.methods.map((m) => m.label).join(', ').slice(0, 1024) || '—' });
     const select = new D.StringSelectMenuBuilder().setCustomId('shop:plan').setPlaceholder(s.placeholder).addOptions(s.plans.map((p) => {
       const q = quote(p, s.discounts);
-      return { label: p.label, description: (p.description ? p.description + ' · ' : '').slice(0, 60) + `${s.currency}${money(q.total)}`, value: p.id };
+      return { label: `Buy by the ${p.label}`.slice(0, 100), description: (p.description ? p.description + ' · ' : '').slice(0, 60) + `${s.currency}${money(q.total)} per ${p.label}`.slice(0, 40), value: p.id };
     }));
     return { embeds: [embed], components: [new D.ActionRowBuilder().addComponents(select)] };
   }
@@ -216,23 +216,40 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
     if (!plan) return interaction.reply(ephemeral('That option no longer exists.'));
     const open = limitReached(interaction.guild, interaction.user.id);
     if (open) return interaction.reply(ephemeral(`You already have ${open.length} open ticket${open.length > 1 ? 's' : ''} (limit ${cfg().tickets.limitPerUser}): ${open.map((t) => `<#${t.channelId}>`).join(' ')}`));
-    const select = new D.StringSelectMenuBuilder().setCustomId(`shop:pay:${plan.id}`).setPlaceholder('Choose a payment method…').addOptions(cfg().shop.methods.map((m) => ({ label: m.label, description: m.description || undefined, value: m.id })));
-    return interaction.reply(ephemeral(`**${plan.label}** selected. How do you want to pay?`, { components: [new D.ActionRowBuilder().addComponents(select)] }));
+    const { minQuantity: lo, maxQuantity: hi } = cfg().shop;
+    const input = new D.TextInputBuilder().setCustomId('qty').setLabel(`How many ${plan.label}s? (${lo}-${hi})`.slice(0, 45)).setStyle(D.TextInputStyle.Short).setRequired(true).setMaxLength(4).setPlaceholder(String(lo));
+    return interaction.showModal(new D.ModalBuilder().setCustomId(`shop:qty:${plan.id}`).setTitle(`Buy by the ${plan.label}`.slice(0, 45)).addComponents(new D.ActionRowBuilder().addComponents(input)));
+  }
+
+  async function shopQuantity(interaction) {
+    const shop = cfg().shop;
+    const plan = shop.plans.find((p) => p.id === interaction.customId.split(':')[2]);
+    if (!plan) return interaction.reply(ephemeral('That option no longer exists.'));
+    const raw = interaction.fields.getTextInputValue('qty').trim();
+    const qty = /^\d{1,4}$/.test(raw) ? Number(raw) : 0;
+    if (qty < shop.minQuantity || qty > shop.maxQuantity) return interaction.reply(ephemeral(`Please enter a whole number from ${shop.minQuantity} to ${shop.maxQuantity}.`));
+    const q = quote({ id: plan.id, price: plan.price * qty }, shop.discounts);
+    const select = new D.StringSelectMenuBuilder().setCustomId(`shop:pay:${plan.id}:${qty}`).setPlaceholder('Choose a payment method…').addOptions(shop.methods.map((m) => ({ label: m.label, description: m.description || undefined, value: m.id })));
+    const price = q.percent ? `~~${shop.currency}${money(q.base)}~~ **${shop.currency}${money(q.total)}** (-${q.percent}%)` : `**${shop.currency}${money(q.total)}**`;
+    return interaction.reply(ephemeral(`**${unitText(plan.label, qty)}** (${plan.days * qty} days) for ${price}. How do you want to pay?`, { components: [new D.ActionRowBuilder().addComponents(select)] }));
   }
 
   async function shopPickMethod(interaction) {
     const shop = cfg().shop;
-    const plan = shop.plans.find((p) => p.id === interaction.customId.split(':')[2]);
+    const [, , planId, qtyRaw] = interaction.customId.split(':');
+    const plan = shop.plans.find((p) => p.id === planId);
+    const qty = Number(qtyRaw);
     const method = shop.methods.find((m) => m.id === interaction.values[0]);
-    if (!plan || !method) return interaction.update({ content: 'That option no longer exists. Please start again from the panel.', components: [] });
+    if (!plan || !method || !Number.isInteger(qty) || qty < shop.minQuantity || qty > shop.maxQuantity) return interaction.update({ content: 'That option no longer exists. Please start again from the panel.', components: [] });
     const g = interaction.guild;
     const open = limitReached(g, interaction.user.id);
     if (open) return interaction.update({ content: `You already have an open ticket: ${open.map((t) => `<#${t.channelId}>`).join(' ')}`, components: [] });
     await interaction.update({ content: 'Creating your order…', components: [] });
-    const q = quote(plan, shop.discounts);
-    const channel = await createTicketChannel(g, interaction.user, shop.categoryId || cfg().tickets.categoryId, `Purchase: ${plan.label}`);
+    const q = quote({ id: plan.id, price: plan.price * qty }, shop.discounts);
+    const label = unitText(plan.label, qty);
+    const channel = await createTicketChannel(g, interaction.user, shop.categoryId || cfg().tickets.categoryId, `Purchase: ${label}`);
     data.addTicket({ channelId: channel.id, userId: interaction.user.id, username: interaction.user.username, kind: 'shop', category: 'Purchase' });
-    const p = data.addPurchase({ channelId: channel.id, userId: interaction.user.id, username: interaction.user.username, planId: plan.id, planLabel: plan.label, days: plan.days, methodId: method.id, methodLabel: method.label, basePrice: q.base, discountPercent: q.percent, discountLabel: q.discountLabel, total: q.total, currency: shop.currency });
+    const p = data.addPurchase({ channelId: channel.id, userId: interaction.user.id, username: interaction.user.username, planId: plan.id, planLabel: label, quantity: qty, unitLabel: plan.label, unitPrice: plan.price, days: plan.days * qty, methodId: method.id, methodLabel: method.label, basePrice: q.base, discountPercent: q.percent, discountLabel: q.discountLabel, total: q.total, currency: shop.currency });
     const msg = await channel.send({ content: `<@${interaction.user.id}> thanks for your order! A team member will contact you about the payment.`, embeds: [orderEmbed(p)], components: orderButtons(), allowedMentions: { users: [interaction.user.id] } });
     data.updatePurchase(p.id, { messageId: msg.id });
     await interaction.editReply({ content: `Your order ticket was created: <#${channel.id}>` });
@@ -456,6 +473,7 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
       } else if (interaction.isModalSubmit()) {
         if (id === 'shop:discountmodal') return await shopDiscountModal(interaction);
         if (id === 'shop:ratemodal') return await shopRateModal(interaction);
+        if (id.startsWith('shop:qty:')) return await shopQuantity(interaction);
       }
     } catch (e) {
       log(`Interaction ${interaction.customId || interaction.commandName} failed: ${e.message}`);

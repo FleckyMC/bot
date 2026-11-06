@@ -54,4 +54,7 @@ const durationLabel = (days) => {
   return `${days} day${days > 1 ? 's' : ''}`;
 };
 
-module.exports = { money, bestDiscount, quote, stars, parseStars, fillTemplate, ticketChannelName, durationLabel };
+/** "week" x 5 -> "5 weeks"; a unit that already ends in "s" is left alone. */
+const unitText = (label, qty) => `${qty} ${qty === 1 || /s$/i.test(label) ? label : label + 's'}`;
+
+module.exports = { unitText, money, bestDiscount, quote, stars, parseStars, fillTemplate, ticketChannelName, durationLabel };
