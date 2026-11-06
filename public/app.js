@@ -11,7 +11,7 @@ let invBot = null;
 const invSel = new Map(); // slot -> item name (for stale-selection checks)
 const picked = new Set(); // bots ticked on the Bots tab
 const sigs = {};
-const TABS = ['overview', 'bots', 'inventory', 'mining', 'automation', 'console', 'accounts', 'founder', 'settings'];
+const TABS = ['overview', 'bots', 'inventory', 'mining', 'automation', 'console', 'accounts', 'bot', 'purchases', 'founder', 'settings'];
 
 // ------------------------------------------------------------ helpers
 

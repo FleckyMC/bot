@@ -34,7 +34,7 @@
   }
 
   const daysLeft = (u) => (u.expiresAt ? Math.max(1, Math.ceil((u.expiresAt - Date.now()) / 86400000)) : '');
-  const roleLabel = (r) => (r === 'founder' ? 'Founder' : r === 'admin' ? 'Admin' : 'User');
+  const roleLabel = (r) => (r === 'founder' ? 'Founder' : r === 'admin' ? 'Admin' : r === 'bot' ? 'Team' : 'User');
 
   function membershipLine(u) {
     if (u.state === 'grace') return { text: `Membership ended – locked, deleted in ${dur(u.graceEndsAt - Date.now())} unless time is added`, cls: 'err' };
@@ -145,6 +145,8 @@
     created: 'created account', deleted: 'deleted account', auto_deleted: 'was deleted automatically (not renewed)', expired: 'membership ended:',
     time_added: 'added time to', renamed: 'renamed', limit_changed: 'changed the limit of', lifetime_changed: 'changed the membership of',
     discord_linked: 'linked Discord:', discord_changed: 'changed the connected Discord account of', discord_revoked: 'revoked the Discord authorization of',
+    bot_config: 'changed the Discord bot settings', bot_panel: 'posted a bot panel:', bot_started: 'started the Discord bot', bot_stopped: 'stopped the Discord bot',
+    bot_kick: 'kicked', bot_ban: 'banned', bot_unban: 'unbanned', purchase_completed: 'completed a purchase:', purchase_cancelled: 'purchase cancelled:', purchase_rated: 'rating received:',
   };
   async function loadAudit() {
     const box = $('auditList');
@@ -157,7 +159,7 @@
         const row = el('div', e.type.includes('delete') || e.type === 'discord_revoked' ? 'warn' : '');
         const actor = e.actor ? `${roleLabel(e.actor.role)} @${e.actor.username}` : 'System';
         const target = e.target ? '@' + e.target.username : '';
-        const text = ['auto_deleted', 'expired', 'discord_linked'].includes(e.type) ? `${target} ${VERB[e.type]}` : `${actor} ${VERB[e.type] || e.type} ${target}`;
+        const text = ['auto_deleted', 'expired', 'discord_linked', 'purchase_cancelled', 'purchase_rated'].includes(e.type) ? `${target} ${VERB[e.type]}` : `${actor} ${VERB[e.type] || e.type} ${target}`;
         row.append(el('span', 't', fmtDate(e.t) + '  '), document.createTextNode(text.replace(/\s+/g, ' ').trim()));
         if (e.detail) row.append(el('span', 'src', ' – ' + e.detail));
         box.append(row);

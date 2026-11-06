@@ -42,7 +42,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .brand b{font:700 19px var(--head);letter-spacing:.03em;background:linear-gradient(90deg,#fff,var(--accent2) 60%,var(--pink));-webkit-background-clip:text;background-clip:text;color:transparent;white-space:nowrap}
 .tabs{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}
 .tabs::-webkit-scrollbar{display:none}
-.tab{appearance:none;border:0;background:transparent;color:var(--muted);font:600 13px var(--body);padding:9px 14px;border-radius:999px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:8px;transition:.15s}
+.tab{appearance:none;border:0;background:transparent;color:var(--muted);font:600 13px var(--body);padding:9px 12px;border-radius:999px;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:8px;transition:.15s}
 .tab svg{width:16px;height:16px}
 .tab:hover{color:var(--text);background:var(--surface2)}
 .tab[aria-selected=true]{color:#fff;background:linear-gradient(135deg,rgba(166,107,255,.38),rgba(255,122,217,.22));box-shadow:inset 0 0 0 1px var(--line2)}
@@ -226,3 +226,23 @@ dialog .section-title{font:600 12px var(--head);letter-spacing:.14em;text-transf
   .slot .cnt{font-size:10px}
 }
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ---------- discord bot tab ---------- */
+.bot-section{display:grid;gap:14px}
+.row-card{border:1px solid var(--line);border-radius:var(--radius-sm);padding:14px;background:rgba(255,255,255,.02);display:grid;gap:12px}
+.row-card .row-head{display:flex;align-items:center;gap:10px}
+.row-card .row-head b{font-size:13px;color:var(--muted)}
+.pick-list{display:flex;flex-wrap:wrap;gap:6px;max-height:150px;overflow:auto;padding:8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--bg2)}
+.pick-list label{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--text);background:var(--surface2);padding:4px 10px;border-radius:99px;cursor:pointer;border:1px solid var(--line)}
+.pick-list label input{width:auto}
+.pick-list label.on{border-color:var(--accent);background:var(--accent-soft)}
+textarea{resize:vertical;min-height:84px}
+input[type=color]{padding:2px;height:38px;width:64px}
+.form-grid.four{grid-template-columns:repeat(4,minmax(0,1fr))}
+.table-wrap{overflow-x:auto}
+table.table{width:100%;border-collapse:collapse;font-size:13px}
+table.table th{text-align:left;color:var(--muted);font-weight:600;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.table td{padding:10px;border-bottom:1px solid var(--line);vertical-align:top}
+table.table td.num{text-align:right;white-space:nowrap}
+@media (max-width:900px){.form-grid.four{grid-template-columns:1fr 1fr}}
+@media (max-width:640px){.form-grid.four{grid-template-columns:1fr}}

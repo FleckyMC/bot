@@ -13,6 +13,7 @@ const defaults = () => ({
   discord: { clientId: '', clientSecret: '', publicUrl: '' },
   accountWebhook: { enabled: false, url: '', events: Object.fromEntries(EVENTS.map((e) => [e, true])) },
   botToken: '',
+  botAutostart: false,
 });
 
 function createFounderStore(file) {
@@ -40,6 +41,16 @@ function createFounderStore(file) {
     return url.origin;
   }
 
+  /** The first part of a bot token is the bot's user ID (base64), which is all we need for an invite link. */
+  function inviteUrl(token) {
+    try {
+      const id = Buffer.from(String(token).split('.')[0], 'base64').toString('utf8');
+      if (!/^\d{15,25}$/.test(id)) return '';
+      const perms = [4, 1, 2, 6, 10, 11, 13, 14, 15, 16, 28].reduce((a, bit) => a | (1n << BigInt(bit)), 0n);
+      return `https://discord.com/oauth2/authorize?client_id=${id}&scope=bot%20applications.commands&permissions=${perms}`;
+    } catch { return ''; }
+  }
+
   return {
     get: () => data,
     redirectUri: () => (data.discord.publicUrl ? data.discord.publicUrl + '/auth/discord/callback' : ''),
@@ -49,7 +60,7 @@ function createFounderStore(file) {
       return {
         discord: { clientId: d.clientId, hasSecret: !!d.clientSecret, secretHint: mask(d.clientSecret), publicUrl: d.publicUrl, redirectUri: this.redirectUri(), configured: this.discordConfigured() },
         accountWebhook: { enabled: w.enabled, hasUrl: !!w.url, urlHint: w.url ? (() => { try { return `${new URL(w.url).host}/…${w.url.slice(-4)}`; } catch { return '…'; } })() : '', events: { ...w.events } },
-        hasBotToken: !!data.botToken,
+        hasBotToken: !!data.botToken, botTokenHint: mask(data.botToken), botInviteUrl: inviteUrl(data.botToken), botAutostart: !!data.botAutostart,
         eventNames: EVENTS,
       };
     },
@@ -77,6 +88,15 @@ function createFounderStore(file) {
         if (p.events && typeof p.events === 'object') for (const e of EVENTS) if (p.events[e] !== undefined) next.accountWebhook.events[e] = !!p.events[e];
         if (next.accountWebhook.enabled && !next.accountWebhook.url) throw new Error('The webhook is enabled but no URL is saved.');
       }
+      if (patch.botToken !== undefined || patch.clearBotToken) {
+        if (patch.clearBotToken) next.botToken = '';
+        else if (typeof patch.botToken === 'string' && patch.botToken.trim()) {
+          const tok = patch.botToken.trim();
+          if (!/^[\w.-]{50,120}$/.test(tok)) throw new Error('That does not look like a Discord bot token (Developer Portal → Bot → Reset Token).');
+          next.botToken = tok;
+        }
+      }
+      if (patch.botAutostart !== undefined) next.botAutostart = !!patch.botAutostart;
       data = next;
       save();
     },

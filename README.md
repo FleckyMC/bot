@@ -43,6 +43,16 @@ The server-side physics fix logs (knockback, "physics fix active") are kept out 
 - **Discord linking**: in the Founder tab enter the Application ID, secret and public URL, then add `https://meltrovia.com/auth/discord/callback` as a redirect in the Discord Developer Portal (OAuth2). Once configured, users must link Discord before continuing. A link only changes when the user revokes the app in Discord; that is logged and can be sent to the webhook.
 - Migration: the former `DASHBOARD_USER` account becomes the Founder (old variables still work as a fallback).
 
+## Discord bot (tickets, shop, roles)
+
+The bot runs inside the dashboard (discord.js). Setup:
+
+1. Discord Developer Portal → New Application → **Bot** → enable **Server Members Intent** → copy the token.
+2. Dashboard → **Founder** tab → paste the token, *Save token*, *Start bot*. Use the shown **invite link** to add the bot to your server, then move the bot's role above every role it should hand out.
+3. Admins configure everything in the **Discord bot** tab and click *Save & post* for each panel. Only the founder holds the token and starts/stops the bot (it restarts automatically with the dashboard).
+
+Features: welcome/leave messages with placeholders, autorole, reaction roles, role toggle buttons, ticket panel (dropdown, categories, per-member limit, only chosen roles can close, channels named `ticket-from-<name>`), purchase panel (payment methods, durations and prices, discounts, order ticket with current total, *Complete purchase* / *Cancel purchase* / *Set discount* for admins), star rating + feedback after a completed purchase (separate channels), `/kick`, `/ban`, `/unban`, `/purchases`. Completed purchases appear in the **Purchases** tab (members see their own via their linked Discord account, admins see all).
+
 ## Install on a VPS (Ubuntu/Debian)
 
 ```bash

@@ -43,12 +43,29 @@ const { notifyAccountEvent, buildAccountPayload } = require('./accountNotify');
 const { sendWebhook } = require('./deathNotify');
 const discordLink = require('./discordLink');
 const { runLifecycle } = require('./lifecycle');
+const { createBotConfig } = require('./discord/config');
+const { createBotData } = require('./discord/store');
+const { createDiscordBot } = require('./discord/bot');
 
 const seeded = auth.configure(path.join(ROOT, 'data', 'users.json'), FOUNDER_USER, FOUNDER_PASSWORD, { admins: auth.parseAdminAccounts(process.env.ADMIN_ACCOUNTS) });
 if (seeded && seeded.skipped && seeded.skipped.length) console.log(`ADMIN_ACCOUNTS: skipped ${seeded.skipped.join(', ')} (user names need 3-32 characters, passwords at least 10)`);
 const manager = new BotManager({ dataDir: path.join(ROOT, 'data'), version: VERSION });
 const founder = createFounderStore(path.join(ROOT, 'data', 'founder.json'));
 const audit = createAudit(path.join(ROOT, 'data', 'audit.json'));
+const botConfig = createBotConfig(path.join(ROOT, 'data', 'bot.json'));
+const botData = createBotData(path.join(ROOT, 'data', 'botdata.json'));
+const botIdentity = (u) => (u ? { id: null, username: u.username || String(u.id || ''), role: 'bot' } : null);
+const discordBot = createDiscordBot({
+  founder, config: botConfig, data: botData,
+  log: (m) => manager.log('system', `[Discord bot] ${m}`, 'info'),
+  onEvent: (type, info) => {
+    const who = info.by ? botIdentity(info.by) : null;
+    if (type === 'purchase_completed') audit.add({ type, actor: { username: info.completedByName || 'team', role: 'bot' }, detail: `${info.username} bought ${info.planLabel} (${info.currency || ''}${info.total})` });
+    else if (type === 'purchase_cancelled') audit.add({ type, detail: `${info.username}: ${info.planLabel}` });
+    else if (type === 'purchase_rated') audit.add({ type, detail: `${info.username} rated ${info.rating}/5` });
+    else audit.add({ type: 'bot_' + type, actor: who, detail: `${info.targetName || info.target || ''} – ${info.reason || ''}` });
+  },
+});
 
 const isAdmin = perms.isStaff; // admin or founder
 // Bots connected by a regular user belong to that user. Bots of admins/the founder (or unassigned ones) are shared.
@@ -259,6 +276,55 @@ app.post('/api/founder/webhook-test', founderOnly, async (req, res) => {
   try { await sendWebhook(w.url, buildAccountPayload({ type: 'test', actor: req.actor, target: req.actor, at: Date.now() }, w.url)); res.json({ ok: true }); } catch (e) { fail(res, e); }
 });
 
+// ---- Discord bot: staff manage the configuration, only the founder holds the token and starts/stops the bot
+const bigJson = express.json({ limit: '256kb' });
+app.get('/api/bot', staffOnly, (req, res) => {
+  const st = discordBot.status();
+  res.json({ status: st, guild: st.status === 'online' ? discordBot.info() : null, guilds: st.status === 'online' ? discordBot.guilds() : [], config: botConfig.get(), panels: botData.panels(), isFounder: perms.isFounder(req.actor), hasToken: !!founder.get().botToken });
+});
+app.put('/api/bot/config', bigJson, staffOnly, async (req, res) => {
+  try {
+    const before = JSON.stringify(botConfig.get());
+    const cfg = botConfig.replace(req.body || {});
+    if (JSON.stringify(cfg) !== before) audit.add({ type: 'bot_config', actor: req.actor, detail: 'Bot settings saved' });
+    await Promise.resolve(discordBot.refresh()).catch(() => {});
+    res.json({ config: cfg });
+  } catch (e) { fail(res, e); }
+});
+app.post('/api/bot/post', json, staffOnly, async (req, res) => {
+  try {
+    const kind = String((req.body || {}).kind || ''), id = (req.body || {}).id ? String(req.body.id) : undefined;
+    const message = await discordBot.postPanel(kind, id);
+    audit.add({ type: 'bot_panel', actor: req.actor, detail: `${kind}${id ? ' ' + id : ''} posted` });
+    res.json({ ok: true, message });
+  } catch (e) { fail(res, e); }
+});
+app.post('/api/founder/bot/start', founderOnly, async (req, res) => {
+  try { await discordBot.start(); founder.update({ botAutostart: true }); audit.add({ type: 'bot_started', actor: req.actor, detail: 'Discord bot started' }); res.json({ status: discordBot.status() }); }
+  catch (e) { fail(res, e); }
+});
+app.post('/api/founder/bot/stop', founderOnly, async (req, res) => {
+  try { await discordBot.stop(); founder.update({ botAutostart: false }); audit.add({ type: 'bot_stopped', actor: req.actor, detail: 'Discord bot stopped' }); res.json({ status: discordBot.status() }); }
+  catch (e) { fail(res, e); }
+});
+
+// Purchases: everyone sees their own completed purchases (matched by the linked Discord account), staff see all of them.
+app.get('/api/purchases', anyUser, (req, res) => {
+  const staff = perms.isStaff(req.actor);
+  const all = botData.purchases();
+  const mine = staff ? all : all.filter((p) => req.actor.discord && p.userId === req.actor.discord.id);
+  const done = mine.filter((p) => p.status === 'completed').sort((a, b) => b.completedAt - a.completedAt);
+  const byDiscord = new Map(auth.getUsers().filter((u) => u.discord).map((u) => [u.discord.id, u.username]));
+  const rows = done.map((p) => ({ id: p.id, userId: p.userId, discordName: p.username, account: staff ? (byDiscord.get(p.userId) || null) : null, plan: p.planLabel, days: p.days, method: p.methodLabel, basePrice: p.basePrice, discountPercent: p.discountPercent, total: p.total, currency: p.currency || botConfig.get().shop.currency, completedAt: p.completedAt, rating: p.rating || 0, feedback: staff ? p.feedback || '' : p.feedback || '' }));
+  const rated = rows.filter((r) => r.rating);
+  const revenue = {};
+  for (const r of rows) revenue[r.currency] = Math.round(((revenue[r.currency] || 0) + r.total) * 100) / 100;
+  res.json({
+    scope: staff ? 'all' : 'own', linked: staff || !!req.actor.discord, rows,
+    summary: { count: rows.length, revenue, avgRating: rated.length ? Math.round(rated.reduce((a, r) => a + r.rating, 0) / rated.length * 10) / 10 : null, open: staff ? all.filter((p) => p.status === 'open').length : undefined, cancelled: staff ? all.filter((p) => p.status === 'cancelled').length : undefined },
+  });
+});
+
 app.post('/api/password', json, anyUser, (req, res) => {
   try { auth.changePassword(req.actor.id, req.body.currentPassword, req.body.newPassword); res.json({ ok: true }); } catch (e) { fail(res, e); }
 });
@@ -461,9 +527,10 @@ setInterval(async () => {
 process.on('unhandledRejection', (e) => manager.log('system', `Unhandled error: ${e && e.message ? e.message : e}`, 'error'));
 process.on('uncaughtException', (e) => manager.log('system', `Error: ${e && e.message ? e.message : e}`, 'error'));
 for (const sig of ['SIGINT', 'SIGTERM']) {
-  process.on(sig, () => { try { manager.disconnect(true); } catch { /* ignore */ } process.exit(0); });
+  process.on(sig, () => { try { manager.disconnect(true); } catch { /* ignore */ } try { discordBot.stop(); } catch { /* ignore */ } process.exit(0); });
 }
 
 server.listen(PORT, HOST, () => {
   console.log(`Dashboard running on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}  (Minecraft ${VERSION})`);
+  if (founder.get().botAutostart && founder.get().botToken) discordBot.start().catch((e) => manager.log('system', `[Discord bot] ${e.message}`, 'error'));
 });

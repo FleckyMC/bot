@@ -10,7 +10,7 @@
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="preload" href="/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/style.css?v=mn-3">
+  <link rel="stylesheet" href="/style.css?v=mn-4">
 </head>
 <body>
 <div id="viewAsBar" class="viewas" hidden><span>Viewing the dashboard as <b id="viewAsName"></b></span><button id="exitViewAs" class="sm" type="button">Back to admin view</button></div>
@@ -26,6 +26,8 @@
       <button class="tab" role="tab" data-tab="automation" data-admin aria-selected="false" hidden>Automation</button>
       <button class="tab" role="tab" data-tab="console" aria-selected="false">Console</button>
       <button class="tab" role="tab" data-tab="accounts" data-realadmin aria-selected="false" hidden>Accounts</button>
+      <button class="tab" role="tab" data-tab="bot" data-realadmin aria-selected="false" hidden>Discord bot</button>
+      <button class="tab" role="tab" data-tab="purchases" aria-selected="false">Purchases</button>
       <button class="tab" role="tab" data-tab="founder" data-realfounder aria-selected="false" hidden>Founder</button>
       <button class="tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
     </nav>
@@ -171,6 +173,19 @@
     <div class="panel" style="margin-top:16px"><div class="head"><div><p class="eyebrow">History</p><h3>Account activity</h3></div></div><div id="auditList" class="log" style="height:300px"></div></div>
   </section>
 
+  <!-- ============ DISCORD BOT (admin) ============ -->
+  <section class="view" id="view-bot" role="tabpanel">
+    <div class="page-head"><div><p class="eyebrow">Administration</p><h2>Discord bot</h2><p>Welcome messages, roles, tickets, the purchase panel and ratings. Only the founder starts or stops the bot.</p></div><span class="spacer"></span><span id="botStatus" class="chip">offline</span><button class="primary" id="botSave" type="button">Save settings</button></div>
+    <div id="botRoot" class="stack"></div>
+  </section>
+
+  <!-- ============ PURCHASES ============ -->
+  <section class="view" id="view-purchases" role="tabpanel">
+    <div class="page-head"><div><p class="eyebrow" id="purEyebrow">Your purchases</p><h2>Purchases</h2><p id="purLead">Completed purchases from the Discord shop.</p></div><span class="spacer"></span><button class="ghost" id="purRefresh" type="button">Refresh</button></div>
+    <div id="purSummary" class="grid cols-4"></div>
+    <div class="panel" style="margin-top:16px"><div class="table-wrap"><table class="table" id="purTable"><thead></thead><tbody></tbody></table></div><div id="purEmpty" class="empty" hidden></div></div>
+  </section>
+
   <!-- ============ FOUNDER ============ -->
   <section class="view" id="view-founder" role="tabpanel">
     <div class="page-head"><div><p class="eyebrow">Founder</p><h2>Founder settings</h2><p>Only you can see and change these settings.</p></div></div>
@@ -192,6 +207,21 @@
           <label>Webhook URL<input id="fdHookUrl" type="password" autocomplete="off" placeholder="https://discord.com/api/webhooks/…"><span class="hint" id="fdHookHint"></span></label>
           <div id="fdEvents" class="stack"></div>
           <div class="toolbar"><button class="primary" id="fdSaveHook" type="button">Save webhook</button><button class="ghost" id="fdTestHook" type="button">Send test message</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:16px"><div class="head"><div><p class="eyebrow">Discord bot</p><h3>Bot token &amp; control</h3></div><span class="spacer"></span><span id="fdBotStatus" class="chip">offline</span></div>
+      <div class="grid cols-2">
+        <div class="stack">
+          <p class="muted">Create a bot in the Discord developer portal (<b>Bot</b> tab), enable <b>Server Members Intent</b>, copy the token and paste it here. The token is stored on the server and never shown again.</p>
+          <label>Bot token<input id="fdBotToken" type="password" autocomplete="new-password" placeholder="Paste the bot token"><span class="hint" id="fdBotHint"></span></label>
+          <div class="toolbar"><button class="primary" id="fdBotSave" type="button">Save token</button><button class="ghost" id="fdBotClear" type="button">Remove token</button></div>
+        </div>
+        <div class="stack">
+          <div class="toolbar"><button class="primary" id="fdBotStart" type="button">Start bot</button><button class="ghost" id="fdBotStop" type="button">Stop bot</button></div>
+          <p class="hint" id="fdBotInfo">The bot starts automatically with the dashboard once it was started here.</p>
+          <label>Invite link (adds the bot to your server)<div class="toolbar"><input id="fdBotInvite" readonly class="grow" placeholder="Save the token first"><button class="ghost sm" id="fdBotInviteCopy" type="button">Copy</button></div></label>
+          <p class="hint">After inviting, move the bot's role <b>above</b> every role it should give out. Admins configure everything else in the “Discord bot” tab.</p>
         </div>
       </div>
     </div>
@@ -264,8 +294,9 @@
 
 <div id="toast" class="toast" hidden></div>
 <script src="/socket.io/socket.io.js"></script>
-<script src="/icons.js?v=mn-3"></script>
-<script src="/app.js?v=mn-3"></script>
-<script src="/accounts.js?v=mn-3"></script>
+<script src="/icons.js?v=mn-4"></script>
+<script src="/app.js?v=mn-4"></script>
+<script src="/accounts.js?v=mn-4"></script>
+<script src="/bot.js?v=mn-4"></script>
 </body>
 </html>
