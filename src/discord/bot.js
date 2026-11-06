@@ -97,16 +97,31 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
     if (!g) throw new Error('The bot is not in the selected server yet.');
     const channel = await g.channels.fetch(channelId).catch(() => null);
     if (!channel || !channel.isTextBased()) throw new Error('Channel not found or not a text channel. Check the selection and the bot permissions.');
+    const me = g.members && g.members.me;
+    if (me && typeof channel.permissionsFor === 'function') {
+      const P = D.PermissionFlagsBits;
+      const have = channel.permissionsFor(me);
+      const need = [['View Channel', P.ViewChannel], ['Send Messages', P.SendMessages], ['Embed Links', P.EmbedLinks], ['Read Message History', P.ReadMessageHistory], ['Add Reactions', P.AddReactions]];
+      const missing = have ? need.filter(([, bit]) => !have.has(bit)).map(([n]) => n) : [];
+      if (missing.length) throw new Error(`I am missing permissions in #${channel.name}: ${missing.join(', ')}. Open the channel settings → Permissions, add my role (or the bot) and allow them, then try again.`);
+    }
     const old = data.getPanel(key);
     if (old && old.channelId === channelId) {
       const msg = await channel.messages.fetch(old.messageId).catch(() => null);
-      if (msg) { await msg.edit(payload); return msg; }
+      if (msg) {
+        try { await msg.edit(payload); } catch (e) { if (e.code === 50013 || e.code === 50001) throw new Error(`Discord refused: the bot cannot edit its message in #${channel.name}. Check its channel permissions.`); throw e; }
+        return msg;
+      }
     } else if (old) {
       const prev = await g.channels.fetch(old.channelId).catch(() => null);
       const msg = prev && prev.isTextBased() ? await prev.messages.fetch(old.messageId).catch(() => null) : null;
       if (msg) await msg.delete().catch(() => {});
     }
-    const msg = await channel.send(payload);
+    let msg;
+    try { msg = await channel.send(payload); } catch (e) {
+      if (e.code === 50013 || e.code === 50001) throw new Error(`Discord refused: the bot may not post in #${channel.name}. Allow View Channel, Send Messages and Embed Links for the bot in that channel.`);
+      throw e;
+    }
     data.setPanel(key, { channelId, messageId: msg.id });
     return msg;
   }

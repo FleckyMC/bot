@@ -374,3 +374,16 @@ test('shop: the buyer enters the amount and the total is amount × price per uni
   assert.match(m2.replies[0].content, /8\.00/);
   assert.throws(() => w.config.replace({ shop: { minQuantity: 10, maxQuantity: 5 } }), /Minimum/);
 });
+
+test('posting a panel explains missing channel permissions', async () => {
+  const w = world();
+  w.config.replace({ tickets: { channelId: ID.ratings } });
+  const ch = w.channels.get(ID.ratings);
+  ch.name = 'tickets';
+  w.guild.members = { me: { id: ID.bot } };
+  ch.permissionsFor = () => ({ has: (bit) => bit !== D.PermissionFlagsBits.EmbedLinks });
+  await assert.rejects(() => w.bot.postPanel('tickets'), /missing permissions in #tickets: Embed Links/);
+  ch.permissionsFor = () => ({ has: () => true });
+  ch.send = async () => { const e = new Error('Missing Permissions'); e.code = 50013; throw e; };
+  await assert.rejects(() => w.bot.postPanel('tickets'), /may not post in #tickets/);
+});
