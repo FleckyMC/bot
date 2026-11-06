@@ -246,3 +246,8 @@ table.table td{padding:10px;border-bottom:1px solid var(--line);vertical-align:t
 table.table td.num{text-align:right;white-space:nowrap}
 @media (max-width:900px){.form-grid.four{grid-template-columns:1fr 1fr}}
 @media (max-width:640px){.form-grid.four{grid-template-columns:1fr}}
+
+/* tabs get their own row so no tab is ever cut off */
+.topbar-inner{flex-wrap:wrap;row-gap:6px}
+.tabs{order:3;flex:1 1 100%}
+.topbar-inner .who{margin-left:auto}

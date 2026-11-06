@@ -300,7 +300,7 @@ function botCard(b, s) {
   meta.append(el('b', '', botLabel(b)), el('span', '', b.pos ? (serverOf(b) || 'Connected') : (['connecting', 'reconnecting', 'error'].includes(b.status) && b.detail ? b.detail : 'Offline')));
   top.append(check, avatar, meta, el('span', 'chip ' + cls, label));
   card.append(top);
-  if (s.isAdmin) { const o = el('div'); o.append(el('span', 'chip owner', b.owner ? 'Owner: ' + b.owner : 'Shared (admin)')); card.append(o); }
+  if (s.isAdmin) { const o = el('div'); o.append(el('span', 'chip owner', b.owner ? 'Owner: ' + b.owner : 'No owner')); card.append(o); }
 
   const v = el('div', 'vitals');
   v.append(vital('Health', b.health != null ? `${Math.round(b.health)} / 20` : '-', b.health != null ? (b.health / 20) * 100 : undefined, b.health != null && b.health < 8 ? 'low' : 'good'));

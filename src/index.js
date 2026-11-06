@@ -276,13 +276,13 @@ app.post('/api/founder/webhook-test', founderOnly, async (req, res) => {
   try { await sendWebhook(w.url, buildAccountPayload({ type: 'test', actor: req.actor, target: req.actor, at: Date.now() }, w.url)); res.json({ ok: true }); } catch (e) { fail(res, e); }
 });
 
-// ---- Discord bot: staff manage the configuration, only the founder holds the token and starts/stops the bot
+// ---- Discord bot: only the founder manages it (token, start/stop, settings, panels)
 const bigJson = express.json({ limit: '256kb' });
-app.get('/api/bot', staffOnly, (req, res) => {
+app.get('/api/bot', founderOnly, (req, res) => {
   const st = discordBot.status();
   res.json({ status: st, guild: st.status === 'online' ? discordBot.info() : null, guilds: st.status === 'online' ? discordBot.guilds() : [], config: botConfig.get(), panels: botData.panels(), isFounder: perms.isFounder(req.actor), hasToken: !!founder.get().botToken });
 });
-app.put('/api/bot/config', bigJson, staffOnly, async (req, res) => {
+app.put('/api/bot/config', bigJson, founderOnly, async (req, res) => {
   try {
     const before = JSON.stringify(botConfig.get());
     const cfg = botConfig.replace(req.body || {});
@@ -291,7 +291,7 @@ app.put('/api/bot/config', bigJson, staffOnly, async (req, res) => {
     res.json({ config: cfg });
   } catch (e) { fail(res, e); }
 });
-app.post('/api/bot/post', json, staffOnly, async (req, res) => {
+app.post('/api/bot/post', json, founderOnly, async (req, res) => {
   try {
     const kind = String((req.body || {}).kind || ''), id = (req.body || {}).id ? String(req.body.id) : undefined;
     const message = await discordBot.postPanel(kind, id);
@@ -412,7 +412,7 @@ const snapshotFor = (user) => {
     const everyone = auth.getUsers();
     snap.bots = snap.bots.map((b) => {
       const o = everyone.find((u) => Array.isArray(u.botNames) && u.botNames.includes(b.name));
-      return { ...b, owner: o && o.role === 'user' ? o.username : null };
+      return { ...b, owner: o ? (o.role === 'founder' && !perms.isFounder(user) ? 'Founder' : o.username) : null };
     });
     return snap;
   }

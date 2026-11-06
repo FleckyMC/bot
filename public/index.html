@@ -26,7 +26,7 @@
       <button class="tab" role="tab" data-tab="automation" data-admin aria-selected="false" hidden>Automation</button>
       <button class="tab" role="tab" data-tab="console" aria-selected="false">Console</button>
       <button class="tab" role="tab" data-tab="accounts" data-realadmin aria-selected="false" hidden>Accounts</button>
-      <button class="tab" role="tab" data-tab="bot" data-realadmin aria-selected="false" hidden>Discord bot</button>
+      <button class="tab" role="tab" data-tab="bot" data-realfounder aria-selected="false" hidden>Discord bot</button>
       <button class="tab" role="tab" data-tab="purchases" aria-selected="false">Purchases</button>
       <button class="tab" role="tab" data-tab="founder" data-realfounder aria-selected="false" hidden>Founder</button>
       <button class="tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
@@ -42,7 +42,7 @@
     <div class="grid cols-4">
       <div class="panel stat"><div class="label">Bots online</div><div class="value" id="stOnline">0</div><div class="sub" id="stOnlineSub">of 0 accounts</div></div>
       <div class="panel stat"><div class="label">Minecraft accounts</div><div class="value" id="stAccounts">0</div><div class="sub" id="stAccountsSub"></div><div class="meter" id="stAccountsMeter" hidden><i></i></div></div>
-      <div class="panel stat" id="stMiningCard" data-admin><div class="label">Shared mining</div><div class="value" id="stMining">Stopped</div><div class="sub" id="stMiningSub"></div></div>
+      <div class="panel stat" id="stMiningCard" data-admin><div class="label">Mining</div><div class="value" id="stMining">Stopped</div><div class="sub" id="stMiningSub"></div></div>
       <div class="panel stat"><div class="label">Game version</div><div class="value" id="stVersion">auto</div><div class="sub">Minecraft Java</div></div>
     </div>
     <div class="grid cols-2" style="margin-top:16px">
@@ -89,7 +89,7 @@
 
   <!-- ============ MINING (admin) ============ -->
   <section class="view" id="view-mining" role="tabpanel">
-    <div class="page-head"><div><p class="eyebrow">Mining</p><h2>Shared mining</h2><p>The area is split between all shared (admin) bots.</p></div><span class="spacer"></span><span id="runChip" class="chip off">stopped</span></div>
+    <div class="page-head"><div><p class="eyebrow">Mining</p><h2>Mining</h2><p>The area is split between the bots of admins and the founder.</p></div><span class="spacer"></span><span id="runChip" class="chip off">stopped</span></div>
     <div class="grid cols-2">
       <div class="panel"><div class="head"><div><p class="eyebrow">Step 1</p><h3>Mining area</h3></div></div>
         <div class="stack">
@@ -175,7 +175,7 @@
 
   <!-- ============ DISCORD BOT (admin) ============ -->
   <section class="view" id="view-bot" role="tabpanel">
-    <div class="page-head"><div><p class="eyebrow">Administration</p><h2>Discord bot</h2><p>Welcome messages, roles, tickets, the purchase panel and ratings. Only the founder starts or stops the bot.</p></div><span class="spacer"></span><span id="botStatus" class="chip">offline</span><button class="primary" id="botSave" type="button">Save settings</button></div>
+    <div class="page-head"><div><p class="eyebrow">Administration</p><h2>Discord bot</h2><p>Welcome messages, roles, tickets, the purchase panel and ratings. Only the founder can see and change this.</p></div><span class="spacer"></span><span id="botStatus" class="chip">offline</span><button class="primary" id="botSave" type="button">Save settings</button></div>
     <div id="botRoot" class="stack"></div>
   </section>
 
@@ -221,7 +221,7 @@
           <div class="toolbar"><button class="primary" id="fdBotStart" type="button">Start bot</button><button class="ghost" id="fdBotStop" type="button">Stop bot</button></div>
           <p class="hint" id="fdBotInfo">The bot starts automatically with the dashboard once it was started here.</p>
           <label>Invite link (adds the bot to your server)<div class="toolbar"><input id="fdBotInvite" readonly class="grow" placeholder="Save the token first"><button class="ghost sm" id="fdBotInviteCopy" type="button">Copy</button></div></label>
-          <p class="hint">After inviting, move the bot's role <b>above</b> every role it should give out. Admins configure everything else in the “Discord bot” tab.</p>
+          <p class="hint">After inviting, move the bot's role <b>above</b> every role it should give out. Everything else is configured in the “Discord bot” tab (founder only).</p>
         </div>
       </div>
     </div>
