@@ -91,7 +91,7 @@ test('manager stores the setting per bot, applies it at once, and only admins ma
   m1.setBotSneak('Acc1', true);
   assert.equal(bot.getControlState('sneak'), true, 'sofort angewendet');
   assert.equal(m1.workers.get('Acc2').wantSneak(), false, 'andere Bots bleiben unberuehrt');
-  assert.throws(() => m1.setBotSneak('Nope', true), /Unbekannter Bot/);
+  assert.throws(() => m1.setBotSneak('Nope', true), /Unknown bot/);
 
   const m2 = new BotManager({ dataDir: dir }); // neu geladen
   assert.equal(m2.workers.get('Acc1').wantSneak(), true);

@@ -110,14 +110,14 @@ function installPhysicsFixes(bot, log = () => {}, options = {}) {
       if (!loggedFirstHit && bot.entity && packet.entityId === bot.entity.id) {
         loggedFirstHit = true;
         const v = packet.velocity || {};
-        log(`Knockback empfangen: vx=${(+v.x).toFixed(3)} vy=${(+v.y).toFixed(3)} vz=${(+v.z).toFixed(3)} (Bloecke/Tick)`, 'info');
+        log(`Knockback received: vx=${(+v.x).toFixed(3)} vy=${(+v.y).toFixed(3)} vz=${(+v.z).toFixed(3)} (blocks/tick)`, 'info');
       }
     });
     client.on('spawn_entity', (packet) => {
       if (!packet || !packet.velocity) return;
       setVelocity(bot.entities[packet.entityId], packet.velocity);
     });
-    log('Physik-Fix aktiv: Knockback nutzt lpVec3-Velocity (Bloecke/Tick)', 'info');
+    log('Physics fix active: knockback uses lpVec3 velocity (blocks/tick)', 'info');
   };
   // plugin_loader registriert sein 'inject_allowed' vor uns -> unser Handler laeuft nach den Plugins.
   bot.once('inject_allowed', installVelocityFix);

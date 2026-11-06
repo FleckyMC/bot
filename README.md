@@ -1,110 +1,72 @@
-# Mining Bots – Dashboard
+# Meltrovia Network – Bot Dashboard
 
-Bot-Netzwerk für Minecraft **1.21.11** (Mineflayer) mit Web-Dashboard.
-Die Bots bauen einen Bereich zwischen zwei Eckpunkten ab, reparieren ihre Spitzhacke mit XP-Flaschen und
-können vom Dashboard aus gestartet, gestoppt und per Chat/Befehl gesteuert werden. Zusätzlich gibt es Aufgabenprofile für AFK/Präsenz, Angeln und Dorfbewohner-Handel.
+A Minecraft bot network (Mineflayer) with a web dashboard. Every user connects **their own Microsoft / Minecraft
+account**; the admin decides how many accounts each user may connect.
 
-## Was die Bots machen
+## Dashboard tabs
 
-- **Bereich abbauen:** Du gibst Pos 1 und Pos 2 an. Der Bereich wird in gleich breite Streifen geteilt, jeder Bot bekommt einen
-  Streifen und baut von oben nach unten Schicht für Schicht ab. Außerhalb des Bereichs wird **nichts** abgebaut
-  (außer du aktivierst „Tunnel graben“).
-- **Reparatur:** Fällt die Haltbarkeit der Spitzhacke **unter 300** (einstellbar), holt der Bot XP-Flaschen
-  (`experience_bottle`) aus dem Inventar, legt sie in die **Nebenhand** (egal ob sie in der Hotbar oder tief im Inventar liegen),
-  schaut nach unten und wirft sie, bis die Spitzhacke wieder voll ist. Danach baut er weiter ab.
-  **Die Spitzhacke braucht Mending**, sonst repariert die XP nichts (der Bot bricht dann nach 8 Würfen mit einer Meldung ab).
-- **Start / Stop:** Stop lässt alle Bots sofort aufhören und stehen. Start beginnt wieder (bereits abgebaute Blöcke werden übersprungen).
-- **Verbinden:** Server-IP eingeben (optional `:Port`), Namen eintragen, „Verbinden“. Danach kannst du im Dashboard
-  Chat-Nachrichten und `/Befehle` an alle oder einen einzelnen Bot schicken.
-- **Kiste (optional):** Ist das Inventar fast voll, bringen die Bots ihre Beute zu einer Kiste. Fehlen XP-Flaschen, holen sie neue aus derselben Kiste.
-- **Weiteres:** Automatisches Wiederverbinden, Blöcke neben Wasser/Lava werden ausgelassen (abschaltbar), Drops werden eingesammelt.
+| Tab | Who | What |
+| --- | --- | --- |
+| Overview | everyone | Stats, account limit, quick add, bot list |
+| Bots | everyone | Connect / disconnect bots, tasks (AFK, fishing, trading), per-bot settings (admin) |
+| Inventory | everyone | Item grid per bot, select items, drop selected (with amount for stacks), drop everything |
+| Mining | admin | Shared mining area, tools, storage chest, auto-drop list |
+| Automation | admin | Auto Eat, Minecraft version |
+| Console | everyone | Chat / commands and the activity log (filterable) |
+| Accounts | admin | Create users, set each user's Minecraft account limit and lifetime, view as user |
+| Settings | everyone | Profile and password |
 
-## Installation auf dem VPS (Ubuntu/Debian)
+## Accounts and limits
+
+- Regular users cannot add bots by name. They press **Add Microsoft account**, sign in with the device code and the
+  account becomes theirs. They only see and control their own bots.
+- In **Accounts** the admin sets *Minecraft account limit* per user (0–100). With a limit of `1` the user can connect
+  exactly one Minecraft account. The limit can be changed at any time; lowering it never removes existing accounts.
+- Removing a bot deletes its saved Microsoft login and frees the slot. Deleting a user removes their bots as well.
+- Users can only connect their bots to public server addresses (no localhost / private networks).
+- Existing users created before this version have a limit of `0` until the admin raises it.
+
+## Per-bot settings (admin)
+
+- **Join / reconnect command:** a chat message or `/command` the bot sends once it is inside the server, after a
+  configurable delay – only after a reconnect, or after every join.
+- **After death:** command after respawn and an optional Discord webhook.
+- **Sneak:** keep the bot crouching.
+
+The server-side physics fix logs (knockback, "physics fix active") are kept out of the activity log.
+
+## Install on a VPS (Ubuntu/Debian)
 
 ```bash
-# 1. Node.js 22 oder neuer
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt install -y nodejs unzip
-
-# 2. Projekt entpacken und Pakete installieren
-unzip mining-bots.zip -d mining-bots && cd mining-bots
+sudo apt install -y nodejs
 npm install
-
-# 3. Starten
+cp .env.example .env && nano .env      # set a long DASHBOARD_PASSWORD
 npm start
 ```
 
-Beim ersten Start wird ein **Passwort erzeugt** und in der Konsole angezeigt (gespeichert in `.env`, dort änderbar).
-Danach ist das Dashboard unter `http://<VPS-IP>:3000` erreichbar. Dort mit dem Benutzer `admin` und dem Passwort anmelden.
-
-### Dauerbetrieb mit pm2
+Run it permanently with pm2:
 
 ```bash
 sudo npm install -g pm2
-pm2 start src/index.js --name mining-bots
-pm2 save && pm2 startup     # startet nach einem Neustart automatisch
-pm2 logs mining-bots        # Log ansehen
+pm2 start src/index.js --name meltrovia-dashboard
+pm2 save && pm2 startup
 ```
 
-### Sicherheit (wichtig)
-
-Das Dashboard steuert Accounts, die sich auf einem Server einloggen. Es ist durch Login geschützt, aber über
-`http://` wird das Passwort **unverschlüsselt** übertragen. Empfohlen:
-
-- **HTTPS mit Domain (Caddy):** In der `Caddyfile`: `deine-domain.de { reverse_proxy 127.0.0.1:3000 }`,
-  in `.env` `HOST=127.0.0.1` und `COOKIE_SECURE=true` setzen. Port 3000 in der Firewall nicht öffnen, nur 80 und 443.
-- **Oder ohne Domain:** `HOST=127.0.0.1` setzen und per SSH-Tunnel zugreifen:
-  `ssh -L 3000:127.0.0.1:3000 user@vps-ip`, dann `http://localhost:3000` im Browser öffnen.
-- Mindestens ein **langes Passwort** in `.env` (`DASHBOARD_PASSWORD`).
-
-## Bedienung
-
-1. **Server & Bots:** IP eintragen, Anmeldung wählen, Namen eintragen (eine pro Zeile, oder „Füllen“ drücken), **Verbinden**.
-   - *Offline-Modus:* nur auf Servern mit `online-mode=false`, beliebige Namen.
-   - *Microsoft:* eine E-Mail pro Zeile, pro Account erscheint ein **Code** im Dashboard. Seite öffnen, Code eingeben,
-     mit dem passenden Microsoft-Konto anmelden. Das wird gespeichert (Ordner `data/profiles`), nächstes Mal ist das nicht mehr nötig.
-     **Passwörter gibst du nirgends ein.** Ein universeller Session-Token-Login für beliebige Launcher ist nicht enthalten, da Token-Formate und Authentifizierungsabläufe unterschiedlich sind.
-2. **Abbau-Bereich:** zwei Ecken eintragen, **Bereich speichern**.
-3. **Ausrüstung:** Jeder Bot braucht eine **Spitzhacke mit Mending** und **XP-Flaschen** im Inventar. Das legst du den Bots ins Inventar
-   (z. B. per Kiste, `/give` oder fallen lassen). Alternativ Kiste in den Einstellungen setzen, dann holen sie sich Flaschen von dort.
-4. **Start**. Zum Anhalten **Stop**.
-
-## Einstellungen
-
-| Einstellung | Bedeutung |
-|---|---|
-| Reparieren unter | Haltbarkeit, ab der repariert wird (Standard 300). Bei kleinen Spitzhacken (Holz, Gold) maximal die Hälfte ihrer Haltbarkeit. |
-| Pause pro Flasche | Wartezeit zwischen zwei Würfen in ms (Standard 600). |
-| Freie Slots mind. | Darunter gehen die Bots zur Kiste (Standard 2). Ohne Kiste halten sie dann an. |
-| Kiste | Koordinaten einer Kiste/Tonne für Beute und XP-Flaschen. Leer lassen = keine Kiste. |
-| Wasser/Lava auslassen | Überspringt Blöcke neben Flüssigkeiten, damit nichts überflutet. |
-| Tunnel graben | Erlaubt Abbau außerhalb des Bereichs, falls er unter einer Schicht liegt und sonst nicht erreichbar ist. |
-
-## Wichtige Hinweise
-
-- **Nur mit Erlaubnis des Server-Betreibers** verwenden. Viele Server verbieten Bots und Automation.
-- Die Bots laufen als reine Programme ohne Minecraft-Fenster. Pro Bot rechne mit etwa 50–100 MB RAM.
-- Minecraft-Version: Standardmäßig wird die Serverversion automatisch erkannt. Alternativ kannst du eine konkrete Versionsnummer eintragen. Die tatsächlich unterstützten Versionen hängen von Mineflayer/minecraft-protocol ab; kein Client kann ohne passende Protokollunterstützung garantiert jede jemals erschienene Version bedienen.
-- Viele Server begrenzen schnelle Logins; die Bots verbinden sich deshalb gestaffelt (5 s Abstand im Offline-Modus).
-- **Auto Eat** ist eine eigenständige Funktion mit eigenem Panel und eigenem Speichern-Knopf. Sie läuft für jeden verbundenen Bot unabhängig von Aufgaben und Drop-Items, ist standardmäßig aktiv und isst nie Kugelfisch, faules Fleisch, rohes Hühnchen, Spinnenaugen, giftige Kartoffeln, Chorusfrüchte, verdächtigen Eintopf oder goldene Äpfel.
-- **Tod und Respawn:** Stirbt ein Bot, pausiert seine Aufgabe und läuft nach dem Respawn automatisch weiter. Kommt vom Server nach dem Respawn keine Position, schaltet das Dashboard die Physik nach 6 s selbst wieder ein.
-- **Bot-Einstellungen pro Bot** (Admin, Knopf „⚙ Bot settings“ an der Bot-Karte): **Sneak** lässt den Bot dauerhaft schleichen (sofort wirksam, bleibt nach Wegfindung, Tod und Respawn erhalten; schleichen macht langsamer). Außerdem die **Todes-Einstellungen**: ein Befehl, der nach dem Respawn gesendet wird (mit Wartezeit), und ein Webhook mit Minecraft-Name, Todesursache, Server, Position, Dimension und Aufgabe. Die Webhook-URL (nur https, keine lokalen Adressen) liegt in `data/config.json` und wird dem Browser nie wieder angezeigt.
-- Wegfindung kann an komplizierten Stellen hängen bleiben; dann überspringt der Bot den Block nach zwei Versuchen.
-- Erreicht ein Bot einen Block nicht (z. B. Bereich unter einer Erdschicht), meldet er das statt still zu stehen.
-
-## Dateien
+### HTTPS with Caddy
 
 ```
-src/index.js        Webserver, Login, Socket
-src/botManager.js   Verwaltung aller Bots, Start/Stop, Einstellungen
-src/botWorker.js    Ein Bot: Abbau, Reparatur, Kiste, Wiederverbinden
-src/planner.js      Bereich prüfen und auf Bots verteilen
-src/auth.js         Sessions und Login-Schutz
-public/             Dashboard (HTML, CSS, JS)
-data/config.json    gespeicherte Einstellungen (wird automatisch angelegt)
-.env                Passwort, Port, Version
+meltrovia.com {
+    reverse_proxy 127.0.0.1:3000
+}
 ```
 
-## Test
+Set `HOST=127.0.0.1` and `COOKIE_SECURE=true` in `.env`; only open ports 80 and 443.
 
-`npm test` prüft die Bereichsaufteilung, die Physik-Fixes und 19 Regressionen für Chat, Tick-Pakete, Versionen, Dashboard-Berechtigungen und Handel. Details zum Update stehen in `FIXES-AND-UPDATE.md`.
+## Development
+
+```bash
+npm test
+```
+
+`.env` and `data/` (users, Microsoft logins, settings) must never be committed.

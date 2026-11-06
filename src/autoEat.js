@@ -65,7 +65,7 @@ function startAutoEat(bot, opts = {}) {
 
     const food = pickFood(bot.inventory.items(), bot.registry, bot.food);
     if (!food) {
-      if (Date.now() - lastNoFoodLog > 60000) { lastNoFoodLog = Date.now(); log('Auto Eat: kein geeignetes Essen im Inventar', 'warn'); }
+      if (Date.now() - lastNoFoodLog > 60000) { lastNoFoodLog = Date.now(); log('Auto Eat: no suitable food in the inventory', 'warn'); }
       return;
     }
 
@@ -73,8 +73,8 @@ function startAutoEat(bot, opts = {}) {
     const previous = bot.heldItem;
     try {
       await bot.equip(food, 'hand');
-      await withTimeout(bot.consume(), 5000, 'Essen dauerte zu lange');
-      log(`Auto Eat: ${food.name} gegessen`, 'info');
+      await withTimeout(bot.consume(), 5000, 'Eating took too long');
+      log(`Auto Eat: ate ${food.name}`, 'info');
     } catch (e) {
       cooldownUntil = Date.now() + 5000;
       try { bot.deactivateItem(); } catch { /* egal */ }

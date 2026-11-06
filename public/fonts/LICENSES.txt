@@ -1,0 +1,4 @@
+Fonts bundled with this dashboard (self-hosted, no external requests):
+- Chakra Petch (c) Cadson Demak - SIL Open Font License 1.1 - via @fontsource/chakra-petch
+- Inter (c) The Inter Project Authors - SIL Open Font License 1.1 - via @fontsource-variable/inter
+License text: https://openfontlicense.org

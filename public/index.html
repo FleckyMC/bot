@@ -1,75 +1,215 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark light"><title>Bot Control · Minecraft</title>
-  <link rel="stylesheet" href="/style.css?v=death-2">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#09060f">
+  <title>Meltrovia Network</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css?v=mn-2">
 </head>
 <body>
-<header class="app-header"><div class="brand-mark">⛏</div><div class="brand"><h1>Bot Control</h1><p>Minecraft · Management & Automation</p></div><span id="conn" class="chip off">0/0 online</span><span class="spacer"></span><form method="post" action="/logout"><button class="ghost" type="submit">Log out ↗</button></form></header>
-<nav class="dashboard-nav" aria-label="Dashboard navigation"><a href="#overview">Dashboard</a><a href="#botsPanel">My Bots</a><a href="#botsPanel">Inventory</a><a href="#activityPanel">Activity Log</a><a href="#profilePanel">Profilee</a><a href="#accountPanel" id="adminNav" hidden>Accounts</a></nav>
-<main>
-  <section class="hero panel" id="overview"><div><p class="eyebrow">OVERVIEW</p><h2>Your bots. Under control.</h2><p class="muted">Manage connections and monitor your Minecraft bots.</p></div><div class="hero-actions"><button id="btnStop" class="danger big">■ Stop all</button><span id="runChip" class="chip off">stopped</span></div><p class="muted small" id="runHint"></p></section>
-  <section class="panel msa-modal-panel" id="msaCard" hidden><div class="section-heading"><div><p class="eyebrow">SIGN IN</p><h2>Microsoft sign-in codes</h2></div><button id="closeMsaModal" class="ghost" type="button" aria-label="Close sign-in window">✕</button></div><p class="muted">Enter the code on Microsoft's website and sign in with the account you want to use.</p><div id="msaList"></div></section>
-  <section class="panel" id="connectionPanel"><div class="section-heading"><div><p class="eyebrow">CONNECTION</p><h2>Server & bots</h2></div><span class="step">01</span></div>
-    <div class="form-grid two"><label>Server address<input id="host" placeholder="play.example.net:25565" autocomplete="off" spellcheck="false"></label><div class="field-note"><span class="hint">Authentication</span><b>Microsoft account</b></div></div>
-    <div class="section-heading"><div><h3>Choose bots to connect</h3><p class="hint">Choose saved Minecraft accounts here and enter a server address to connect. Adding a Microsoft account below does not connect to a server.</p></div></div>
-    <div class="toolbar"><input id="connectBotSearch" class="compact" placeholder="Search bots…" aria-label="Search bots to connect"><button id="selectAllBots" class="ghost" type="button">Select all</button><button id="deselectAllBots" class="ghost" type="button">Deselect all</button></div>
-    <div id="connectBotChoices" class="connect-bot-choices"><p class="muted">No saved bot accounts yet.</p></div>
-    <div class="toolbar"><span class="spacer"></span><button id="btnConnect" class="primary">Connect selected</button><button id="btnDisconnect" class="danger-ghost">Disconnect selected</button></div>
-    <div class="form-grid two separated"><label>Minecraft version<input id="mcVersion" value="auto" placeholder="auto, 26.1 oder 1.21.11"></label><div class="field-note"><span class="hint">Current version</span><b id="version">auto</b><button id="btnVersion" class="ghost">Save version</button></div></div>
-    <details class="advanced"><summary>Add a single bot</summary><p class="muted">Add a Microsoft account without connecting to a Minecraft server. After sign-in succeeds, the player appears in My Bots as Offline.</p><div class="field-note"><span class="hint">Authentication</span><b>Microsoft account</b></div><button id="btnAddBot" class="primary">＋ Add Microsoft account</button></details>
-  </section>
-  <section class="panel" id="automationPanel"><div class="section-heading"><div><p class="eyebrow">AUTOMATION</p><h2>Mining area</h2></div><span class="step">02</span></div><p class="muted">Set two opposite corners. The area is split between connected bots.</p>
-    <div class="coords"><span class="coord-label">Position 1</span><input id="x1" type="number" placeholder="X" aria-label="Pos 1 X"><input id="y1" type="number" placeholder="Y" aria-label="Pos 1 Y"><input id="z1" type="number" placeholder="Z" aria-label="Pos 1 Z"></div>
-    <div class="coords"><span class="coord-label">Position 2</span><input id="x2" type="number" placeholder="X" aria-label="Pos 2 X"><input id="y2" type="number" placeholder="Y" aria-label="Pos 2 Y"><input id="z2" type="number" placeholder="Z" aria-label="Pos 2 Z"></div><div class="toolbar"><button id="btnArea" class="primary">Save area</button><button id="btnStartMining" class="primary">▶ Start mining</button><span id="areaInfo" class="muted small"></span></div>
-  </section>
-  <section class="panel" id="toolsPanel"><div class="section-heading"><div><p class="eyebrow">TOOLS</p><h2>Mining & storage</h2></div><span class="step">03</span></div>
-    <div class="form-grid three"><label>Repair below<input id="sThreshold" type="number" min="1" max="2500"><span class="hint">Pickaxe remaining durability</span></label><label>Delay per XP bottle<input id="sDelay" type="number" min="250" max="3000" step="50"><span class="hint">Milliseconds</span></label><label>Minimum free slots<input id="sFree" type="number" min="0" max="20"><span class="hint">Before depositing</span></label></div>
-    <div class="coords"><span class="coord-label">Storage chest</span><input id="cx" type="number" placeholder="X" aria-label="Kiste X"><input id="cy" type="number" placeholder="Y" aria-label="Kiste Y"><input id="cz" type="number" placeholder="Z" aria-label="Kiste Z"></div>
-    <label class="check"><input id="sLiquid" type="checkbox"> Avoid blocks next to water/lava</label><label class="check"><input id="sOutside" type="checkbox"> Allow digging outside the area (may mine extra blocks)</label><label>Excluded blocks<input id="sExcluded" placeholder="bedrock, chest, barrel"><span class="hint">Comma-separated block IDs</span></label>
-    <label>Items to drop automatically<input id="dropItems" placeholder="cobblestone, dirt, netherrack"><span class="hint">Comma-separated item IDs; empty means disabled</span></label>
-    <div class="toolbar"><button id="btnSettings" class="primary">Save settings</button><span class="muted small">The chest stores mined items and XP bottles.</span></div>
-  </section>
-  <section class="panel fishing-panel" id="fishingPanel"><div class="section-heading"><div><p class="eyebrow">TASK PROFILE</p><h2>Auto fishing</h2></div><span class="step">04</span></div><p class="muted">These settings apply when you start fishing on a bot.</p>
-    <div class="form-grid three"><label>Fishing rod threshold<input id="fishThreshold" type="number" min="1" max="64" value="20"><span class="hint">Remaining durability</span></label><label class="check toggle-label"><input id="fishMending" type="checkbox" checked> Repair Mending with XP bottles</label><label class="check toggle-label"><input id="fishDeposit" type="checkbox" checked> Deposit catch when inventory is full</label></div>
-    <p class="hint">Configure the storage chest above. XP bottles repair the rod only if the bot actually collects the XP. Without Mending, a replacement rod is sought when durability is low.</p>
-  </section>
-  <section class="panel" id="autoEatPanel"><div class="section-heading"><div><p class="eyebrow">STANDALONE</p><h2>Auto Eat</h2></div><span class="step">05</span></div><p class="muted">Runs on its own for every connected bot, independent of mining, fishing or other tasks.</p>
-    <label class="check"><input id="autoEat" type="checkbox" checked> Auto Eat enabled</label><label>Hunger threshold<input id="autoEatThreshold" type="number" min="1" max="20" value="14"><span class="hint">Eat when hunger is below this value. Pufferfish, rotten flesh, raw chicken, spider eyes, poisonous potatoes, chorus fruit, suspicious stew and golden apples are never eaten automatically.</span></label>
-    <div class="toolbar"><button id="btnAutoEat" class="primary">Save Auto Eat</button></div>
-  </section>
-  <section class="panel wide" id="botsPanel"><div class="section-heading"><div><p class="eyebrow">LIVE STATUS</p><h2>My Bots</h2></div><span class="hint">Live updates</span></div><div class="toolbar"><select id="botStatusFilter" aria-label="Filter bots"><option value="all">All bots</option><option value="online">Online</option><option value="offline">Offline</option></select><input id="botSearch" class="compact" placeholder="Search bots…" aria-label="Search bots"></div><div id="bots" class="bots"><div class="empty-state">No bots connected yet. Connect a bot above to manage it here.</div></div></section>
-  <section class="panel" id="chatPanel"><div class="section-heading"><div><p class="eyebrow">COMMUNICATION</p><h2>Chat & Commands</h2></div></div><div class="toolbar"><select id="chatTarget"><option value="all">All bots</option></select><input id="chatText" class="grow" placeholder="Message or /command…" maxlength="256" autocomplete="off"><button id="btnChat" class="primary">Send</button></div><p class="hint">Commands start with /; other text is sent as a chat message.</p></section>
-  <section class="panel" id="activityPanel"><div class="section-heading"><div><p class="eyebrow">SYSTEM</p><h2>Activity Log</h2></div><button id="clearLog" class="ghost">Clear</button></div><div id="log" class="log" role="log" aria-live="polite"></div></section>
+<div id="viewAsBar" class="viewas" hidden><span>Viewing the dashboard as <b id="viewAsName"></b></span><button id="exitViewAs" class="sm" type="button">Back to admin view</button></div>
 
-  <section class="panel wide" id="accountPanel" hidden>
-    <div class="section-heading"><div><p class="eyebrow">ADMINISTRATION</p><h2>Accounts & access</h2></div><div class="row wrap"><button class="ghost" id="exitViewAs" hidden>Exit view-as mode</button><button class="ghost" id="refreshAccounts">Refresh</button></div></div>
-    <form id="createAccount" class="form-grid three">
-      <label>Username<input name="username" required minlength="3" maxlength="32" autocomplete="off"></label>
-      <label>Temporary password (10+ characters)<input name="password" type="password" required minlength="10" autocomplete="new-password"></label>
-      <label>Account lifetime (days; blank = permanent)<input name="days" type="number" min="1" placeholder="Permanent"></label>
-      <label class="wide">Assign available bots<select name="botNames" id="createBotNames" multiple size="4" aria-label="Bots assigned to this account"></select><span class="hint">Only bots not assigned to another account are listed. Use Ctrl/Cmd to select multiple.</span></label>
-      <div><button class="primary" type="submit">Create account</button></div>
-    </form>
-    <label>Search accounts<input id="accountSearch" placeholder="Search username…"></label>
-    <div id="accountList" class="bots"></div>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="#overview" aria-label="Meltrovia Network"><img src="/logo-small.png" width="42" height="42" alt=""><b>Meltrovia Network</b></a>
+    <nav class="tabs" role="tablist" aria-label="Dashboard sections">
+      <button class="tab" role="tab" data-tab="overview" aria-selected="true">Overview</button>
+      <button class="tab" role="tab" data-tab="bots" aria-selected="false">Bots <span class="count" id="botCount" hidden></span></button>
+      <button class="tab" role="tab" data-tab="inventory" aria-selected="false">Inventory</button>
+      <button class="tab" role="tab" data-tab="mining" data-admin aria-selected="false" hidden>Mining</button>
+      <button class="tab" role="tab" data-tab="automation" data-admin aria-selected="false" hidden>Automation</button>
+      <button class="tab" role="tab" data-tab="console" aria-selected="false">Console</button>
+      <button class="tab" role="tab" data-tab="accounts" data-realadmin aria-selected="false" hidden>Accounts</button>
+      <button class="tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
+    </nav>
+    <div class="who"><span class="chip" id="conn">0/0 online</span><span class="name" id="whoName"></span><form method="post" action="/logout"><button class="ghost sm" type="submit">Log out</button></form></div>
+  </div>
+</header>
+
+<main>
+  <!-- ============ OVERVIEW ============ -->
+  <section class="view active" id="view-overview" role="tabpanel">
+    <div class="page-head"><div><p class="eyebrow">Dashboard</p><h2>Welcome to Meltrovia Network</h2><p>Your Minecraft accounts at a glance.</p></div><span class="spacer"></span><button id="btnStop" class="danger" type="button">■ Stop all tasks</button></div>
+    <div class="grid cols-4">
+      <div class="panel stat"><div class="label">Bots online</div><div class="value" id="stOnline">0</div><div class="sub" id="stOnlineSub">of 0 accounts</div></div>
+      <div class="panel stat"><div class="label">Minecraft accounts</div><div class="value" id="stAccounts">0</div><div class="sub" id="stAccountsSub"></div><div class="meter" id="stAccountsMeter" hidden><i></i></div></div>
+      <div class="panel stat" id="stMiningCard" data-admin><div class="label">Shared mining</div><div class="value" id="stMining">Stopped</div><div class="sub" id="stMiningSub"></div></div>
+      <div class="panel stat"><div class="label">Game version</div><div class="value" id="stVersion">auto</div><div class="sub">Minecraft Java</div></div>
+    </div>
+    <div class="grid cols-2" style="margin-top:16px">
+      <div class="panel"><div class="head"><div><p class="eyebrow">Accounts</p><h3>Connect your Minecraft account</h3></div></div>
+        <p class="muted" id="addBotText">Sign in with the Microsoft account that owns Minecraft Java Edition. Adding an account does not join a server yet.</p>
+        <div class="toolbar" style="margin-top:14px"><button id="btnAddBot" class="primary" type="button">＋ Add Microsoft account</button><span class="hint" id="addBotHint"></span></div>
+      </div>
+      <div class="panel"><div class="head"><div><p class="eyebrow">Live</p><h3>Your bots</h3></div><span class="spacer"></span><button class="ghost sm" data-goto="bots" type="button">Manage</button></div>
+        <div id="overviewBots" class="stack"></div>
+      </div>
+    </div>
   </section>
-  <section class="panel" id="passwordPanel"><span id="profilePanel"></span>
-    <div class="section-heading"><div><p class="eyebrow">SECURITY</p><h2>Change password</h2></div></div>
-    <form id="changePassword" class="form-grid">
-      <label>Current password<input name="currentPassword" type="password" required autocomplete="current-password"></label>
-      <label>New password (10+ characters)<input name="newPassword" type="password" minlength="10" required autocomplete="new-password"></label>
-      <button class="primary" type="submit">Update password</button>
-    </form>
-    <p id="accountMessage" class="hint" role="status"></p>
+
+  <!-- ============ BOTS ============ -->
+  <section class="view" id="view-bots" role="tabpanel">
+    <div class="page-head"><div><p class="eyebrow">Bots</p><h2>Your bots</h2><p>Select bots, pick a server and connect.</p></div><span class="spacer"></span><button id="btnAddBot2" class="primary" type="button">＋ Add Microsoft account</button></div>
+    <div class="panel">
+      <div class="form-grid two">
+        <label>Server address<input id="host" placeholder="play.meltrovia.com" autocomplete="off" spellcheck="false"></label>
+        <div class="toolbar" style="align-items:flex-end"><button id="btnConnect" class="primary" type="button">Connect selected</button><button id="btnDisconnect" class="danger" type="button">Disconnect selected</button></div>
+      </div>
+      <div class="toolbar" style="margin-top:14px">
+        <input id="botSearch" class="compact" placeholder="Search bots…" aria-label="Search bots">
+        <select id="botStatusFilter" aria-label="Filter bots"><option value="all">All bots</option><option value="online">Online</option><option value="offline">Offline</option></select>
+        <button id="selectAllBots" class="ghost sm" type="button">Select all</button><button id="deselectAllBots" class="ghost sm" type="button">Select none</button>
+      </div>
+    </div>
+    <div id="bots" class="bot-grid" style="margin-top:16px"></div>
+    <details class="panel" style="margin-top:16px"><summary style="cursor:pointer;font-weight:600">Task options (fishing)</summary>
+      <div class="form-grid three" style="margin-top:14px">
+        <label>Rod replacement threshold<input id="fishThreshold" type="number" min="1" max="64" value="20"><span class="hint">Remaining durability</span></label>
+        <label class="check"><input id="fishMending" type="checkbox" checked> Repair with Mending / XP bottles</label>
+        <label class="check"><input id="fishDeposit" type="checkbox" checked> Deposit catch when the inventory is full</label>
+      </div>
+    </details>
   </section>
-</main><dialog id="deathDialog" class="death-dialog" aria-labelledby="deathTitle">
-  <form method="dialog" id="deathForm" class="form-grid">
-    <div class="section-heading"><div><p class="eyebrow">PER BOT</p><h2 id="deathTitle">Bot settings</h2></div><button class="ghost" id="deathClose" type="button" aria-label="Close">✕</button></div>
+
+  <!-- ============ INVENTORY ============ -->
+  <section class="view" id="view-inventory" role="tabpanel">
+    <div class="page-head"><div><p class="eyebrow">Inventory</p><h2>Bot inventory</h2><p>Click items to select them, then drop them on the ground.</p></div></div>
+    <div id="invPills" class="bot-pills" style="margin-bottom:16px"></div>
+    <div id="invBody"></div>
+  </section>
+
+  <!-- ============ MINING (admin) ============ -->
+  <section class="view" id="view-mining" role="tabpanel">
+    <div class="page-head"><div><p class="eyebrow">Mining</p><h2>Shared mining</h2><p>The area is split between all shared (admin) bots.</p></div><span class="spacer"></span><span id="runChip" class="chip off">stopped</span></div>
+    <div class="grid cols-2">
+      <div class="panel"><div class="head"><div><p class="eyebrow">Step 1</p><h3>Mining area</h3></div></div>
+        <div class="stack">
+          <div class="coords"><span>Position 1</span><input id="x1" type="number" placeholder="X" aria-label="Pos 1 X"><input id="y1" type="number" placeholder="Y" aria-label="Pos 1 Y"><input id="z1" type="number" placeholder="Z" aria-label="Pos 1 Z"></div>
+          <div class="coords"><span>Position 2</span><input id="x2" type="number" placeholder="X" aria-label="Pos 2 X"><input id="y2" type="number" placeholder="Y" aria-label="Pos 2 Y"><input id="z2" type="number" placeholder="Z" aria-label="Pos 2 Z"></div>
+          <div class="toolbar"><button id="btnArea" class="primary" type="button">Save area</button><button id="btnStartMining" class="primary" type="button">▶ Start mining</button><span id="areaInfo" class="muted small"></span></div>
+          <p class="hint" id="runHint"></p>
+        </div>
+      </div>
+      <div class="panel"><div class="head"><div><p class="eyebrow">Step 2</p><h3>Tools &amp; storage</h3></div></div>
+        <div class="stack">
+          <div class="form-grid three">
+            <label>Repair below<input id="sThreshold" type="number" min="1" max="2500"><span class="hint">Pickaxe durability</span></label>
+            <label>Delay per XP bottle<input id="sDelay" type="number" min="250" max="3000" step="50"><span class="hint">Milliseconds</span></label>
+            <label>Minimum free slots<input id="sFree" type="number" min="0" max="20"><span class="hint">Before depositing</span></label>
+          </div>
+          <div class="coords"><span>Storage chest</span><input id="cx" type="number" placeholder="X" aria-label="Chest X"><input id="cy" type="number" placeholder="Y" aria-label="Chest Y"><input id="cz" type="number" placeholder="Z" aria-label="Chest Z"></div>
+          <label class="check"><input id="sLiquid" type="checkbox"> Avoid blocks next to water/lava</label>
+          <label class="check"><input id="sOutside" type="checkbox"> Allow digging outside the area (may mine extra blocks)</label>
+          <label>Excluded blocks<input id="sExcluded" placeholder="bedrock, chest, barrel"><span class="hint">Comma-separated block IDs</span></label>
+          <label>Items to drop automatically<input id="dropItems" placeholder="cobblestone, dirt, netherrack"><span class="hint">Comma-separated item IDs; empty means disabled</span></label>
+          <div class="toolbar"><button id="btnSettings" class="primary" type="button">Save settings</button><span class="hint">The chest stores mined items and XP bottles.</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ AUTOMATION (admin) ============ -->
+  <section class="view" id="view-automation" role="tabpanel">
+    <div class="page-head"><div><p class="eyebrow">Automation</p><h2>Standalone features</h2><p>These run independently of mining and other tasks.</p></div></div>
+    <div class="grid cols-2">
+      <div class="panel"><div class="head"><div><p class="eyebrow">Survival</p><h3>Auto Eat</h3></div></div>
+        <div class="stack">
+          <p class="muted">Runs on its own for every connected bot.</p>
+          <label class="check"><input id="autoEat" type="checkbox" checked> Auto Eat enabled</label>
+          <label>Hunger threshold<input id="autoEatThreshold" type="number" min="1" max="20" value="14"><span class="hint">Eat when hunger is below this value. Pufferfish, rotten flesh, raw chicken, spider eyes, poisonous potatoes, chorus fruit, suspicious stew and golden apples are never eaten automatically.</span></label>
+          <div class="toolbar"><button id="btnAutoEat" class="primary" type="button">Save Auto Eat</button></div>
+        </div>
+      </div>
+      <div class="panel"><div class="head"><div><p class="eyebrow">Version</p><h3>Minecraft version</h3></div></div>
+        <div class="stack">
+          <p class="muted">Use <code>auto</code> to detect the server version, or enter one such as <code>1.21.11</code>. Disconnect all bots before changing it.</p>
+          <label>Version<input id="mcVersion" value="auto" placeholder="auto, 1.21.11 or 26.1"></label>
+          <div class="toolbar"><button id="btnVersion" class="primary" type="button">Save version</button><span class="hint">Current: <b id="version">auto</b></span></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:16px"><div class="head"><div><p class="eyebrow">Per bot</p><h3>Join &amp; reconnect commands, death handling, sneak</h3></div></div>
+      <p class="muted">Open <b>Settings</b> on a bot card in the <button class="ghost sm" data-goto="bots" type="button">Bots</button> tab to configure the command a bot runs after it joins or reconnects, what it does after dying and whether it sneaks.</p>
+    </div>
+  </section>
+
+  <!-- ============ CONSOLE ============ -->
+  <section class="view" id="view-console" role="tabpanel">
+    <div class="page-head"><div><p class="eyebrow">Console</p><h2>Chat &amp; activity</h2></div></div>
+    <div class="panel"><div class="head"><div><p class="eyebrow">Communication</p><h3>Chat &amp; commands</h3></div></div>
+      <div class="toolbar"><select id="chatTarget" aria-label="Chat target"><option value="all">All bots</option></select><input id="chatText" class="grow" placeholder="Message or /command…" maxlength="256" autocomplete="off"><button id="btnChat" class="primary" type="button">Send</button></div>
+      <p class="hint" style="margin-top:8px">Commands start with /; other text is sent as a chat message.</p>
+    </div>
+    <div class="panel" style="margin-top:16px"><div class="head"><div><p class="eyebrow">System</p><h3>Activity log</h3></div><span class="spacer"></span><input id="logSearch" class="compact" style="width:200px" placeholder="Filter log…" aria-label="Filter log"><select id="logLevel" style="width:auto" aria-label="Log level"><option value="all">All messages</option><option value="problems">Warnings &amp; errors</option></select><button id="clearLog" class="ghost sm" type="button" data-admin>Clear</button></div>
+      <div id="log" class="log" role="log" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <!-- ============ ACCOUNTS (admin) ============ -->
+  <section class="view" id="view-accounts" role="tabpanel">
+    <div class="page-head"><div><p class="eyebrow">Administration</p><h2>Accounts &amp; limits</h2><p>Every user connects their own Microsoft accounts. You decide how many.</p></div><span class="spacer"></span><button class="ghost" id="refreshAccounts" type="button">Refresh</button></div>
+    <div class="panel">
+      <div class="head"><div><p class="eyebrow">New user</p><h3>Create account</h3></div></div>
+      <form id="createAccount" class="form-grid three">
+        <label>Username<input name="username" required minlength="3" maxlength="32" autocomplete="off"></label>
+        <label>Temporary password (10+ characters)<input name="password" type="password" required minlength="10" autocomplete="new-password"></label>
+        <label>Minecraft account limit<input name="botLimit" type="number" min="0" max="100" value="1" required><span class="hint">How many Microsoft accounts this user may connect</span></label>
+        <label>Lifetime in days<input name="days" type="number" min="1" placeholder="Permanent"><span class="hint">Leave empty for a permanent account</span></label>
+        <div style="align-self:end"><button class="primary" type="submit">Create account</button></div>
+      </form>
+    </div>
+    <div class="toolbar" style="margin:16px 0"><input id="accountSearch" class="compact" placeholder="Search username…" aria-label="Search accounts"><span id="accountMessageAdmin" class="hint" role="status"></span></div>
+    <div id="accountList" class="grid cols-2"></div>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section class="view" id="view-settings" role="tabpanel">
+    <div class="page-head"><div><p class="eyebrow">Settings</p><h2>Your profile</h2></div></div>
+    <div class="grid cols-2">
+      <div class="panel"><div class="head"><div><p class="eyebrow">Account</p><h3>Profile</h3></div></div>
+        <div class="stack"><div class="kv"><span>Username</span><b id="pfName">-</b></div><div class="kv"><span>Role</span><b id="pfRole">-</b></div><div class="kv"><span>Minecraft accounts</span><b id="pfLimit">-</b></div></div>
+      </div>
+      <div class="panel"><div class="head"><div><p class="eyebrow">Security</p><h3>Change password</h3></div></div>
+        <form id="changePassword" class="form-grid">
+          <label>Current password<input name="currentPassword" type="password" required autocomplete="current-password"></label>
+          <label>New password (10+ characters)<input name="newPassword" type="password" minlength="10" required autocomplete="new-password"></label>
+          <div><button class="primary" type="submit">Update password</button></div>
+        </form>
+        <p id="accountMessage" class="hint" role="status" style="margin-top:10px"></p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Microsoft sign-in -->
+<dialog id="msaDialog" aria-labelledby="msaTitle">
+  <div class="head"><div><p class="eyebrow">Microsoft sign-in</p><h2 id="msaTitle">Connect your Minecraft account</h2></div><span class="spacer"></span><button id="closeMsaModal" class="ghost sm" type="button" aria-label="Close">✕</button></div>
+  <p class="muted">Open the Microsoft page, enter the code and sign in with the account that owns Minecraft Java Edition.</p>
+  <div id="msaList"></div>
+</dialog>
+
+<!-- Bot settings -->
+<dialog id="botDialog" aria-labelledby="botTitle">
+  <form method="dialog" id="botForm" class="form-grid">
+    <div class="head"><div><p class="eyebrow">Per bot</p><h2 id="botTitle">Bot settings</h2></div><span class="spacer"></span><button class="ghost sm" id="botClose" type="button" aria-label="Close">✕</button></div>
     <label class="check"><input id="botSneak" type="checkbox"> Sneak (crouch) all the time</label>
     <p class="hint">Applies immediately and is kept after pathfinding, death and respawn. Sneaking slows the bot down.</p>
-    <h3>After death</h3>
+
+    <div class="section-title">On join / reconnect</div>
+    <label class="check"><input id="rcOn" type="checkbox"> Run a command once the bot is in the server</label>
+    <label>Command or message<input id="rcCmd" maxlength="256" placeholder="/login yourpassword" autocomplete="off" spellcheck="false"><span class="hint">Sent as chat/command after the bot has joined and spawned.</span></label>
+    <div class="form-grid two">
+      <label>Wait before sending (seconds)<input id="rcDelay" type="number" min="0" max="120" value="5"></label>
+      <label>Run<select id="rcRunOn"><option value="reconnect">Only after a reconnect</option><option value="always">After every join</option></select></label>
+    </div>
+
+    <div class="section-title">After death</div>
     <label class="check"><input id="deathCmdOn" type="checkbox"> Run a command after respawning</label>
     <label>Command<input id="deathCmd" maxlength="256" placeholder="/home" autocomplete="off" spellcheck="false"><span class="hint">Sent as chat/command once the bot has respawned.</span></label>
     <label>Wait before sending (seconds)<input id="deathDelay" type="number" min="0" max="120" value="3"></label>
@@ -77,7 +217,23 @@
     <label>Webhook URL<input id="deathHook" type="password" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false"><span class="hint" id="deathHookHint">The URL is stored on the server and never shown again. Leave empty to keep the saved one.</span></label>
     <label class="check"><input id="deathHookClear" type="checkbox"> Remove the saved webhook URL</label>
     <p class="hint">The message contains the Minecraft name, the cause of death, server, position, dimension and current task.</p>
-    <div class="toolbar"><button class="primary" id="deathSave" type="button">Save</button><button class="ghost" id="deathTest" type="button">Send test webhook</button></div>
+    <div class="toolbar"><button class="primary" id="botSave" type="button">Save</button><button class="ghost" id="deathTest" type="button">Send test webhook</button></div>
   </form>
 </dialog>
-<div id="toast" class="toast" hidden></div><script src="/socket.io/socket.io.js"></script><script src="/app.js?v=death-2"></script><script src="/accounts.js?v=death-2"></script></body></html>
+
+<!-- Generic ask / confirm dialog -->
+<dialog id="askDialog" aria-labelledby="askTitle">
+  <form method="dialog" id="askForm" class="form-grid">
+    <div class="head"><div><h2 id="askTitle"></h2><p class="muted" id="askText" style="margin-top:6px"></p></div></div>
+    <div id="askFields" class="form-grid"></div>
+    <div class="toolbar" style="justify-content:flex-end"><button class="ghost" id="askCancel" type="button">Cancel</button><button class="primary" id="askOk" type="submit">OK</button></div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" hidden></div>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/icons.js?v=mn-2"></script>
+<script src="/app.js?v=mn-2"></script>
+<script src="/accounts.js?v=mn-2"></script>
+</body>
+</html>

@@ -133,7 +133,7 @@ test('queued commands cannot run on a replacement connection', async () => {
   replacement._client = { state: 'play' };
   replacement.chat = () => assert.fail('must not send on replacement bot');
   w.bot = replacement;
-  await assert.rejects(task, /nicht verbunden/);
+  await assert.rejects(task, /not connected/);
   assert.deepEqual(bot.sent, []);
 });
 
@@ -144,14 +144,14 @@ test('chat spacing is enforced and reconnection during the wait cancels the comm
   await sleep(20);
   w.bot = null;
   w.spawned = false;
-  await assert.rejects(pending, /getrennt/);
+  await assert.rejects(pending, /disconnected/);
   assert.deepEqual(bot.sent, ['/balance']);
 });
 
 test('synchronous server echo is caught; echo listeners are cleaned up', async () => {
   const { w, bot, logs } = worker();
   await w.chat('hello');
-  assert.ok(logs.some(l => l.text.includes('zurückgespielt')));
+  assert.ok(logs.some(l => l.text.includes('echoed the chat message')));
   assert.equal(bot.listenerCount('messagestr'), 0);
   assert.equal(bot.listenerCount('end'), 0);
   w.watchChatEcho(bot, 'another message');
@@ -187,10 +187,10 @@ test('saved offline accounts allow 26.1/version changes; active and reconnecting
   assert.equal(m.version, '26.1');
   assert.equal(JSON.parse(fs.readFileSync(m.file)).version, '26.1');
   m.workers.get('Saved').wantConnected = true;
-  assert.throws(() => m.setVersion('auto'), /zuerst trennen/);
+  assert.throws(() => m.setVersion('auto'), /disconnect the bots first/);
   m.workers.get('Saved').wantConnected = false;
   m.workers.get('Saved').bot = {};
-  assert.throws(() => m.setVersion('auto'), /zuerst trennen/);
+  assert.throws(() => m.setVersion('auto'), /disconnect the bots first/);
   m.workers.get('Saved').bot = null;
   m.setVersion('1.21.11');
   assert.throws(() => m.setVersion('99.99'));
@@ -266,6 +266,11 @@ function dashboard(t) {
     sendChat(...args) { this.calls.push(['chat', ...args]); }
     disconnectSelected(...args) { this.calls.push(['disconnect', ...args]); }
     stopBots(...args) { this.calls.push(['stop', ...args]); }
+    pendingCountFor() { return this.pending || 0; }
+    addBot(...args) { this.calls.push(['add', ...args]); }
+    dropItems(...args) { this.calls.push(['drop', ...args]); }
+    dropAll(...args) { this.calls.push(['dropAll', ...args]); }
+    setBotReconnectSettings(...args) { this.calls.push(['reconnect', ...args]); }
   }
   const app = { set() {}, disable() {}, use() {}, get() {}, post() {}, patch() {}, delete() {} };
   const express = () => app;
@@ -279,6 +284,7 @@ function dashboard(t) {
     if (name === './auth') return authForTest;
     if (name === './botManager') return { BotManager: Manager };
     if (name === './access') return require('../src/access');
+    if (name === './botSettings') return require('../src/botSettings');
     return require(name);
   };
   const fakeProcess = new EventEmitter();
@@ -332,4 +338,32 @@ test('expired accounts stop receiving live dashboard updates', t => {
   intervals[0]();
   assert.equal(socket.disconnected, true);
   assert.equal(updates, 0);
+});
+
+test('account limit: users add only as many Microsoft accounts as the admin allows', async t => {
+  const { auth, user, manager, action } = dashboard(t);
+  // limit 0 by default: not allowed to add anything
+  let r = await action('add_bot', {});
+  assert.equal(r.ok, false);
+  assert.match(r.error, /not allowed|limit/i);
+  auth.updateUser(user.id, { botLimit: 2 });
+  manager.workers.set('Mine', {}); // 1 of 2 used
+  assert.equal((await action('add_bot', {})).ok, true);
+  assert.equal(manager.calls.filter((c) => c[0] === 'add').length, 1);
+  assert.equal(manager.calls[0][1].ownerId, user.id);
+  manager.pending = 1; // 1 connected + 1 signing in = 2 of 2
+  r = await action('add_bot', {});
+  assert.equal(r.ok, false);
+  assert.match(r.error, /Account limit reached \(2\/2\)/);
+  assert.throws(() => auth.updateUser(user.id, { botLimit: 101 }), /between 0 and 100/);
+});
+
+test('users may drop items from and configure only their own bots; reconnect settings are admin-only', async t => {
+  const { manager, action } = dashboard(t);
+  assert.equal((await action('drop_all', { name: 'Other' })).ok, false);
+  assert.equal((await action('drop_items', { name: 'Other', items: [] })).ok, false);
+  assert.equal((await action('set_bot_reconnect', { name: 'Mine', reconnect: {} })).ok, false);
+  assert.equal((await action('drop_all', { name: 'Mine' })).ok, true);
+  assert.equal((await action('drop_items', { name: 'Mine', items: [{ slot: 9, name: 'stone', count: 1 }] })).ok, true);
+  assert.deepEqual(manager.calls.map((c) => c[0]), ['dropAll', 'drop']);
 });

@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const SESSION_MS = 7 * 24 * 3600 * 1000;
+const MAX_BOT_LIMIT = 100;
 let usersFile = null;
 const sessions = new Map();
 const attempts = new Map();
@@ -34,13 +35,19 @@ function configure(file, adminUser, adminPassword) {
 function getUsers() { try { return JSON.parse(fs.readFileSync(usersFile,'utf8')).users || []; } catch { return []; } }
 function saveUsers(users) { const tmp=usersFile+'.tmp'; fs.writeFileSync(tmp,JSON.stringify({users},null,2),{mode:0o600}); fs.renameSync(tmp,usersFile); }
 function publicUser(u) { return {id:u.id,username:u.username,role:u.role,createdAt:u.createdAt,expiresAt:u.expiresAt||null,botLimit:u.botLimit||0,botNames:Array.isArray(u.botNames)?u.botNames:[]}; }
+// How many Microsoft accounts a regular user may connect (0 = none). Admins are never limited.
+function parseBotLimit(value) {
+  const n = Number(value);
+  if (value === '' || value === null || !Number.isInteger(n) || n < 0 || n > MAX_BOT_LIMIT) throw new Error(`Account limit must be a whole number between 0 and ${MAX_BOT_LIMIT}.`);
+  return n;
+}
 function createUser({username,password,role='user',expiresAt=null,botLimit=0,botNames=[]}) {
   username=String(username||'').trim();
   if (!/^[A-Za-z0-9_.-]{3,32}$/.test(username)) throw new Error('Username must be 3–32 letters, numbers, dots, dashes or underscores.');
   if (String(password||'').length < 10) throw new Error('Password must contain at least 10 characters.');
   const users=getUsers(); if(users.some(u=>u.username.toLowerCase()===username.toLowerCase())) throw new Error('Username already exists.');
   const hp=hashPassword(password);
-  const limit=0;
+  const limit=parseBotLimit(botLimit);
   const assigned=Array.isArray(botNames)?[...new Set(botNames.map(String).map(x=>x.trim()).filter(Boolean))]:[];
   const user={id:crypto.randomUUID(),username,role:role==='admin'?'admin':'user',...hp,createdAt:Date.now(),expiresAt:expiresAt?Number(expiresAt):null,botLimit:limit,botNames:assigned};
   users.push(user); saveUsers(users); return publicUser(user);
@@ -48,9 +55,27 @@ function createUser({username,password,role='user',expiresAt=null,botLimit=0,bot
 function updateUser(id, patch={}) {
   const users=getUsers(), u=users.find(x=>x.id===id); if(!u) throw new Error('User not found.');
   if(patch.expiresAt !== undefined) u.expiresAt=patch.expiresAt===null||patch.expiresAt===''?null:Number(patch.expiresAt);
-  if(patch.botLimit !== undefined) u.botLimit=Math.max(0,Math.floor(Number(patch.botLimit)||0));
+  if(patch.botLimit !== undefined) u.botLimit=parseBotLimit(patch.botLimit);
   if(patch.botNames !== undefined) u.botNames=Array.isArray(patch.botNames)?[...new Set(patch.botNames.map(String).map(x=>x.trim()).filter(Boolean))]:[];
   saveUsers(users); return publicUser(u);
+}
+// Bots belong to the user who connected their Microsoft account. `botNames` stores the internal bot names.
+function addOwnedBot(userId, name) {
+  const users=getUsers(), u=users.find(x=>x.id===userId); if(!u) return false;
+  const bots=Array.isArray(u.botNames)?u.botNames:[];
+  if(!bots.some(n=>String(n).toLowerCase()===String(name).toLowerCase())) bots.push(String(name));
+  u.botNames=bots; saveUsers(users); return true;
+}
+function removeOwnedBots(names) {
+  const drop=new Set((Array.isArray(names)?names:[names]).filter(Boolean).map(n=>String(n).toLowerCase()));
+  if(!drop.size) return;
+  const users=getUsers(); let changed=false;
+  for(const u of users){
+    const before=Array.isArray(u.botNames)?u.botNames:[];
+    const after=before.filter(n=>!drop.has(String(n).toLowerCase()));
+    if(after.length!==before.length){u.botNames=after;changed=true;}
+  }
+  if(changed) saveUsers(users);
 }
 function deleteUser(id) { const users=getUsers(), u=users.find(x=>x.id===id); if(!u) throw new Error('User not found.'); if(u.role==='admin') throw new Error('Admin accounts cannot be deleted here.'); saveUsers(users.filter(x=>x.id!==id)); for(const [t,s] of sessions) if(s.userId===id) sessions.delete(t); }
 function changePassword(userId,currentPassword,newPassword) {
@@ -76,4 +101,4 @@ function login(username,password,ip) {
 function logout(token){sessions.delete(token);}
 function cookieHeader(token,secure,clear=false){const p=[`session=${clear?'':token}`,'HttpOnly','SameSite=Strict','Path=/',`Max-Age=${clear?0:Math.floor(SESSION_MS/1000)}`];if(secure)p.push('Secure');return p.join('; ');}
 setInterval(()=>{const now=Date.now();for(const [t,s] of sessions)if(s.expiresAt<now)sessions.delete(t);for(const [ip,e] of attempts)if(e.resetAt<now)attempts.delete(ip);},600000).unref();
-module.exports={configure,getUsers,publicUser,createUser,updateUser,deleteUser,changePassword,sessionUser,login,logout,isValid,tokenFrom,parseCookies,cookieHeader};
+module.exports={configure,getUsers,publicUser,createUser,updateUser,deleteUser,addOwnedBot,removeOwnedBots,changePassword,sessionUser,login,logout,isValid,tokenFrom,parseCookies,cookieHeader};

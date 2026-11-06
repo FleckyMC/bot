@@ -4,13 +4,13 @@ const MAX_VOLUME = 20_000_000;
 
 function toInt(v, label) {
   const n = Number(v);
-  if (!Number.isFinite(n) || !Number.isInteger(n)) throw new Error(`${label} muss eine ganze Zahl sein`);
-  if (Math.abs(n) > 30_000_000) throw new Error(`${label} ist zu gross`);
+  if (!Number.isFinite(n) || !Number.isInteger(n)) throw new Error(`${label} must be a whole number`);
+  if (Math.abs(n) > 30_000_000) throw new Error(`${label} is too large`);
   return n;
 }
 
 function normalizeArea(p1, p2) {
-  if (!p1 || !p2) throw new Error('Bitte beide Eckpunkte angeben');
+  if (!p1 || !p2) throw new Error('Please provide both corner points');
   const a = { x: toInt(p1.x, 'X1'), y: toInt(p1.y, 'Y1'), z: toInt(p1.z, 'Z1') };
   const b = { x: toInt(p2.x, 'X2'), y: toInt(p2.y, 'Y2'), z: toInt(p2.z, 'Z2') };
   const r = {
@@ -18,7 +18,7 @@ function normalizeArea(p1, p2) {
     minY: Math.min(a.y, b.y), maxY: Math.max(a.y, b.y),
     minZ: Math.min(a.z, b.z), maxZ: Math.max(a.z, b.z),
   };
-  if (volume(r) > MAX_VOLUME) throw new Error('Bereich ist zu gross (max. 20 Mio. Bloecke)');
+  if (volume(r) > MAX_VOLUME) throw new Error('Area is too large (max. 20 million blocks)');
   return r;
 }
 

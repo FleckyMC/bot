@@ -6,6 +6,8 @@ const config = require('./config');
 const planner = require('./planner');
 const { BotWorker } = require('./botWorker');
 const { normalizeDeathSettings, buildDeathPayload, sendWebhook } = require('./deathNotify');
+const { normalizeReconnectSettings } = require('./botSettings');
+const net = require('net');
 const { Authflow, Titles } = require('prismarine-auth');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -17,9 +19,24 @@ function parseHost(input, portInput) {
   let port = Number(portInput) || 0;
   const m = host.match(/^(.+):(\d{1,5})$/);
   if (m) { host = m[1]; port = Number(m[2]); }
-  if (!host || /\s/.test(host)) throw new Error('Bitte eine Server-IP oder Adresse angeben');
-  if (port && (port < 1 || port > 65535)) throw new Error('Ungueltiger Port');
+  if (!host || /\s/.test(host)) throw new Error('Please enter a server address');
+  if (port && (port < 1 || port > 65535)) throw new Error('Invalid port');
   return { host, port };
+}
+
+// Regular users may connect their bots to public servers only, so the dashboard cannot be used to probe
+// the machine it runs on or its local network. (Literal addresses and obvious local names are checked.)
+function isInternalHost(host) {
+  const h = String(host || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!h) return true;
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal') || !h.includes('.') && !net.isIP(h)) return true;
+  const kind = net.isIP(h);
+  if (kind === 4) {
+    const [a, b] = h.split('.').map(Number);
+    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+  }
+  if (kind === 6) return h === '::1' || h === '::' || /^f[cd]/.test(h) || /^fe[89ab]/.test(h) || h.startsWith('::ffff:');
+  return false;
 }
 
 class BotManager extends EventEmitter {
@@ -75,6 +92,10 @@ class BotManager extends EventEmitter {
     this.mining = false;
     this.msa = new Map();
     this.pendingAccounts = new Map();
+    this.cancelledSignIns = new Set();
+    // The dashboard decides which bots are shared (admin-owned) and which belong to a regular user.
+    // Global actions (mining, auto-drop, storage chest) only touch shared bots.
+    this.isShared = () => true;
     this.logs = [];
     this.touchTimer = null;
   }
@@ -86,7 +107,7 @@ class BotManager extends EventEmitter {
       config.save(this.file, {
         connection: this.connection, version: this.version, names: this.names, accountNames: this.accountNames, accountProfiles: this.accountProfiles, botSettings: this.botSettings, area: this.area, settings: this.settings,
       });
-    } catch (e) { this.log('system', `Konfiguration konnte nicht gespeichert werden: ${e.message}`, 'warn'); }
+    } catch (e) { this.log('system', `Could not save the configuration: ${e.message}`, 'warn'); }
   }
 
   log(source, text, level = 'info') {
@@ -126,11 +147,11 @@ class BotManager extends EventEmitter {
     const v = String(version || 'auto').trim();
     // Mineflayer auto-detects the server protocol. Explicit versions are accepted
     // without a UI allow-list; actual support is still limited by minecraft-protocol.
-    if (v !== 'auto' && !require('minecraft-data').versionsByMinecraftVersion.pc[v]) throw new Error('Unbekannte Minecraft-Version (z. B. auto, 1.21.11, 26.1)');
-    if ([...this.workers.values()].some(w => w.bot || w.wantConnected)) throw new Error('Bitte Bots zuerst trennen, dann die Version ändern');
+    if (v !== 'auto' && !require('minecraft-data').versionsByMinecraftVersion.pc[v]) throw new Error('Unknown Minecraft version (e.g. auto, 1.21.11, 26.1)');
+    if ([...this.workers.values()].some(w => w.bot || w.wantConnected)) throw new Error('Please disconnect the bots first, then change the version');
     this.version = v;
     this.save();
-    this.log('system', `Minecraft-Version gesetzt: ${v === 'auto' ? 'automatisch erkennen' : v}`, 'info');
+    this.log('system', `Minecraft version set: ${v === 'auto' ? 'auto-detect' : v}`, 'info');
     this.touch();
   }
 
@@ -144,7 +165,7 @@ class BotManager extends EventEmitter {
       settings: this.settings,
       mining: this.mining,
       bots: [...this.workers.values()].filter((w) => !!(w.accountName || this.accountNames[w.name])).map((w) => w.snapshot()),
-      pendingSignIns: [...this.pendingAccounts.values()].map((p) => ({ name: p.name, msa: this.msa.get(p.name) || null, detail: p.detail || 'Waiting for Microsoft sign-in' })),
+      pendingSignIns: [...this.pendingAccounts.values()].map((p) => ({ name: p.name, ownerId: p.ownerId || null, msa: this.msa.get(p.name) || null, detail: p.detail || 'Waiting for Microsoft sign-in' })),
     };
   }
 
@@ -157,13 +178,13 @@ class BotManager extends EventEmitter {
       const n = String(raw).trim();
       if (!n) continue;
       
-      if (auth === 'microsoft' && !MAIL_RE.test(n) && !NAME_RE.test(n)) throw new Error(`Ungueltiger Account "${n}" (E-Mail-Adresse erwartet)`);
-      if (seen.has(n.toLowerCase())) throw new Error(`Doppelter Name "${n}"`);
+      if (auth === 'microsoft' && !MAIL_RE.test(n) && !NAME_RE.test(n)) throw new Error(`Invalid account "${n}" (email address expected)`);
+      if (seen.has(n.toLowerCase())) throw new Error(`Duplicate name "${n}"`);
       seen.add(n.toLowerCase());
       out.push(n);
     }
-    if (!out.length) throw new Error('Mindestens ein Bot-Name / Account noetig');
-    if (out.length > 100) throw new Error('Maximal 100 Bots');
+    if (!out.length) throw new Error('At least one bot name / account is required');
+    if (out.length > 100) throw new Error('At most 100 bots');
     return out;
   }
 
@@ -178,7 +199,7 @@ class BotManager extends EventEmitter {
     this.names = names;
     this.save();
 
-    this.log('system', `Verbinde ${names.length} Bot(s) mit ${host}${port ? ':' + port : ''} (Version ${this.version}, ${auth})`, 'info');
+    this.log('system', `Connecting ${names.length} bot(s) to ${host}${port ? ':' + port : ''} (version ${this.version}, ${auth})`, 'info');
     names.forEach((n) => { const w = new BotWorker(this, n); w.authMethod = auth; this.workers.set(n, w); });
     // Verbindungen gestaffelt aufbauen, viele Server drosseln schnelle Logins
     const delay = auth === 'microsoft' ? 1500 : 5000;
@@ -190,7 +211,37 @@ class BotManager extends EventEmitter {
     this.touch();
   }
 
-  addBot() {
+  pendingCountFor(ownerId) {
+    let n = 0;
+    for (const p of this.pendingAccounts.values()) if (p.ownerId && p.ownerId === ownerId) n++;
+    return n;
+  }
+
+  // Cancels a running Microsoft sign-in. A device-code login cannot be aborted on Microsoft's side, so the
+  // result is simply discarded when (if) it arrives.
+  cancelSignIn(name, ownerId = null) {
+    const pending = this.pendingAccounts.get(String(name || ''));
+    if (!pending) throw new Error('This sign-in is no longer running');
+    if (ownerId && pending.ownerId !== ownerId) throw new Error('This sign-in belongs to another account');
+    this.cancelledSignIns.add(pending.name);
+    this.pendingAccounts.delete(pending.name);
+    this.clearMsa(pending.name);
+    this.forgetProfile(pending.profileDir);
+    this.log('system', 'Microsoft sign-in cancelled', 'info');
+    this.touch();
+  }
+
+  // Deletes the saved Microsoft login of a bot (only inside data/profiles).
+  forgetProfile(profileDir) {
+    try {
+      const root = path.resolve(this.dataDir, 'profiles') + path.sep;
+      const dir = path.resolve(String(profileDir || ''));
+      if (!dir.startsWith(root) || dir === root) return;
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch { /* best effort */ }
+  }
+
+  addBot({ ownerId = null } = {}) {
     // Adding an account only authenticates with Microsoft. It must not connect
     // to any Minecraft server; the user chooses a server later via Connect.
     let index = 1;
@@ -198,7 +249,7 @@ class BotManager extends EventEmitter {
     const name = `MicrosoftAccount${index}`;
     const safe = name.replace(/[^A-Za-z0-9_.@-]/g, '_');
     const profileDir = path.join(this.dataDir, 'profiles', `${safe}-${Date.now()}`);
-    const pending = { name, profileDir, detail: 'Microsoft sign-in in progress' };
+    const pending = { name, profileDir, ownerId, detail: 'Microsoft sign-in in progress' };
     this.pendingAccounts.set(name, pending);
     this.log('system', 'Starting Microsoft account sign-in. No Minecraft server connection will be started.', 'info');
     this.touch();
@@ -214,6 +265,9 @@ class BotManager extends EventEmitter {
           const returnedFields = result && typeof result === 'object' ? Object.keys(result).filter((key) => !/token|secret|key/i.test(key)).join(', ') : typeof result;
           throw new Error(`Microsoft authorization finished, but no Minecraft Java profile name was returned (response fields: ${returnedFields || 'none'}). Make sure this Microsoft account owns Minecraft Java Edition.`);
         }
+        if (this.cancelledSignIns.delete(name)) { this.forgetProfile(profileDir); return; }
+        const duplicate = [...this.workers.values()].find((w) => String(w.accountName || this.accountNames[w.name] || '').toLowerCase() === String(playerName).toLowerCase());
+        if (duplicate) throw new Error(`The Minecraft account ${playerName} is already added to the dashboard.`);
         const worker = new BotWorker(this, name);
         worker.profileDir = profileDir;
         worker.authMethod = 'microsoft';
@@ -230,10 +284,13 @@ class BotManager extends EventEmitter {
         this.clearMsa(name);
         this.save();
         this.log(name, `Microsoft account connected: ${playerName}. No server connection started.`, 'info');
+        this.emit('account_added', { name, ownerId, accountName: String(playerName) });
         this.touch();
       } catch (e) {
+        if (this.cancelledSignIns.delete(name)) { this.forgetProfile(profileDir); return; }
         this.pendingAccounts.delete(name);
         this.clearMsa(name);
+        this.forgetProfile(profileDir);
         const parts = [];
         const seen = new Set();
         for (let current = e, depth = 0; current && depth < 5; current = current.cause, depth++) {
@@ -250,17 +307,19 @@ class BotManager extends EventEmitter {
     })();
   }
 
-  connectSelected(p) {
+  connectSelected(p, { restrictInternal = false } = {}) {
     const { host, port } = parseHost(p.host, p.port);
+    if (restrictInternal && isInternalHost(host)) throw new Error('Please enter the public address of a Minecraft server.');
     const selected = [...new Set((Array.isArray(p.names) ? p.names : []).map(String))];
     if (!selected.length) throw new Error('Select at least one bot to connect.');
-    this.connection = { host, port, auth: 'microsoft' };
-    this.save();
+    // A regular user only sets the target of their own bots; the shared server stays as the admin set it.
+    if (!restrictInternal) { this.connection = { host, port, auth: 'microsoft' }; this.save(); }
     let delay = 0;
     for (const name of selected) {
       const w = this.workers.get(name);
       if (!w) continue;
       if (w.bot) continue;
+      w.target = { host, port };
       w.wantConnected = true;
       setTimeout(() => {
         if (this.workers.get(name) === w && w.wantConnected) w.connect();
@@ -291,7 +350,9 @@ class BotManager extends EventEmitter {
 
   removeBot(name) {
     const w = this.workers.get(String(name || ''));
-    if (!w) throw new Error('Unbekannter Bot');
+    if (!w) throw new Error('Unknown bot');
+    const accountName = w.accountName || this.accountNames[w.name] || null;
+    const profileDir = w.profileDir || this.accountProfiles[w.name];
     w.disconnect();
     this.workers.delete(w.name);
     this.names = this.names.filter(n => n !== w.name);
@@ -300,7 +361,9 @@ class BotManager extends EventEmitter {
     delete this.accountProfiles[w.name];
     delete this.botSettings[w.name];
     this.save();
-    this.log('system', `Bot ${w.name} entfernt`, 'info');
+    this.forgetProfile(profileDir);
+    this.emit('bot_removed', { name: w.name, accountName });
+    this.log('system', `Bot ${w.name} removed`, 'info');
     this.touch();
   }
 
@@ -315,14 +378,14 @@ class BotManager extends EventEmitter {
   // ------------------------------------------------------------ Bereich & Einstellungen
 
   setArea(p1, p2) {
-    if (this.mining) throw new Error('Bitte zuerst stoppen, dann den Bereich aendern');
+    if (this.mining) throw new Error('Please stop first, then change the area');
     const r = planner.normalizeArea(p1, p2); // validiert
     this.area = {
       p1: { x: r.minX, y: r.minY, z: r.minZ },
       p2: { x: r.maxX, y: r.maxY, z: r.maxZ },
     };
     this.save();
-    this.log('system', `Bereich gesetzt: ${r.minX} ${r.minY} ${r.minZ} bis ${r.maxX} ${r.maxY} ${r.maxZ} (${planner.volume(r)} Bloecke)`, 'info');
+    this.log('system', `Area set: ${r.minX} ${r.minY} ${r.minZ} to ${r.maxX} ${r.maxY} ${r.maxZ} (${planner.volume(r)} blocks)`, 'info');
     this.touch();
   }
 
@@ -330,13 +393,13 @@ class BotManager extends EventEmitter {
     const s = { ...this.settings };
     const int = (v, min, max, label) => {
       const n = Number(v);
-      if (!Number.isInteger(n) || n < min || n > max) throw new Error(`${label}: Zahl zwischen ${min} und ${max} erwartet`);
+      if (!Number.isInteger(n) || n < min || n > max) throw new Error(`${label}: a whole number between ${min} and ${max} is required`);
       return n;
     };
-    if (p.durabilityThreshold !== undefined) s.durabilityThreshold = int(p.durabilityThreshold, 1, 2500, 'Haltbarkeit');
-    if (p.minFreeSlots !== undefined) s.minFreeSlots = int(p.minFreeSlots, 0, 20, 'Freie Slots');
-    if (p.throwDelayMs !== undefined) s.throwDelayMs = int(p.throwDelayMs, 250, 3000, 'Wurf-Pause');
-    if (p.fishingThreshold !== undefined) s.fishingThreshold = int(p.fishingThreshold, 1, 64, 'Angel-Haltbarkeit');
+    if (p.durabilityThreshold !== undefined) s.durabilityThreshold = int(p.durabilityThreshold, 1, 2500, 'Durability');
+    if (p.minFreeSlots !== undefined) s.minFreeSlots = int(p.minFreeSlots, 0, 20, 'Free slots');
+    if (p.throwDelayMs !== undefined) s.throwDelayMs = int(p.throwDelayMs, 250, 3000, 'Throw delay');
+    if (p.fishingThreshold !== undefined) s.fishingThreshold = int(p.fishingThreshold, 1, 64, 'Rod durability');
     if (p.fishingUseMending !== undefined) s.fishingUseMending = !!p.fishingUseMending;
     if (p.fishingDeposit !== undefined) s.fishingDeposit = !!p.fishingDeposit;
     if (p.autoEat !== undefined) s.autoEat = !!p.autoEat;
@@ -345,24 +408,24 @@ class BotManager extends EventEmitter {
       if (!Array.isArray(p.dropItems)) throw new Error('Drop items must be a list');
       s.dropItems = [...new Set(p.dropItems.map(x => String(x).trim().toLowerCase().replace(/^minecraft:/, '')).filter(x => /^[a-z0-9_]+$/.test(x)))].slice(0, 128);
     }
-    if (p.collectEvery !== undefined) s.collectEvery = int(p.collectEvery, 1, 100, 'Einsammeln alle');
+    if (p.collectEvery !== undefined) s.collectEvery = int(p.collectEvery, 1, 100, 'Collect every');
     if (p.avoidLiquid !== undefined) s.avoidLiquid = !!p.avoidLiquid;
     if (p.allowDigOutside !== undefined) s.allowDigOutside = !!p.allowDigOutside;
     if (p.excludedBlocks !== undefined) {
-      if (!Array.isArray(p.excludedBlocks)) throw new Error('Block-Ausnahmen muessen eine Liste sein');
+      if (!Array.isArray(p.excludedBlocks)) throw new Error('Excluded blocks must be a list');
       s.excludedBlocks = [...new Set(p.excludedBlocks.map(v => String(v).trim().toLowerCase()).filter(v => /^[a-z0-9_]+$/.test(v)))].slice(0, 200);
     }
     if (p.chest !== undefined) {
       if (p.chest === null) s.chest = null;
       else s.chest = {
-        x: int(p.chest.x, -30000000, 30000000, 'Kiste X'),
-        y: int(p.chest.y, -2048, 2048, 'Kiste Y'),
-        z: int(p.chest.z, -30000000, 30000000, 'Kiste Z'),
+        x: int(p.chest.x, -30000000, 30000000, 'Chest X'),
+        y: int(p.chest.y, -2048, 2048, 'Chest Y'),
+        z: int(p.chest.z, -30000000, 30000000, 'Chest Z'),
       };
     }
     this.settings = s;
     this.save();
-    this.log('system', 'Einstellungen gespeichert', 'info');
+    this.log('system', 'Settings saved', 'info');
     this.touch();
   }
 
@@ -374,66 +437,91 @@ class BotManager extends EventEmitter {
 
   setBotSneak(name, enabled) {
     const w = this.workers.get(String(name || ''));
-    if (!w) throw new Error('Unbekannter Bot');
+    if (!w) throw new Error('Unknown bot');
     const sneak = enabled === true || enabled === 'true';
     this.botSettings[w.name] = { ...this.getBotSettings(w.name), sneak };
     this.save();
-    this.log(w.name, sneak ? 'Sneaken eingeschaltet' : 'Sneaken ausgeschaltet', 'info');
+    this.log(w.name, sneak ? 'Sneak enabled' : 'Sneak disabled', 'info');
     w.applySneak();
     this.touch();
   }
 
   setBotDeathSettings(name, input) {
     const w = this.workers.get(String(name || ''));
-    if (!w) throw new Error('Unbekannter Bot');
+    if (!w) throw new Error('Unknown bot');
     const current = this.getBotSettings(w.name);
     const death = normalizeDeathSettings(input, current.death);
     this.botSettings[w.name] = { ...current, death };
     this.save();
-    this.log(w.name, `Todes-Einstellungen gespeichert (Befehl: ${death.commandEnabled ? 'an' : 'aus'}, Webhook: ${death.webhookEnabled ? 'an' : 'aus'})`, 'info');
+    this.log(w.name, `Death settings saved (command: ${death.commandEnabled ? 'on' : 'off'}, webhook: ${death.webhookEnabled ? 'on' : 'off'})`, 'info');
     this.touch();
   }
 
   async testDeathWebhook(name) {
     const w = this.workers.get(String(name || ''));
-    if (!w) throw new Error('Unbekannter Bot');
+    if (!w) throw new Error('Unknown bot');
     const death = this.getBotSettings(w.name).death;
-    if (!death || !death.webhookUrl) throw new Error('Für diesen Bot ist noch keine Webhook-URL gespeichert');
+    if (!death || !death.webhookUrl) throw new Error('No webhook URL is saved for this bot yet');
     const payload = buildDeathPayload({
       minecraftName: w.accountName || this.accountNames[w.name] || w.name,
-      cause: 'Das ist eine Testnachricht – kein echter Tod.',
+      cause: 'This is a test message – not a real death.',
       server: this.connection && this.connection.host ? this.connection.host : null,
       test: true,
       time: Date.now(),
     }, death.webhookUrl);
     await sendWebhook(death.webhookUrl, payload);
-    this.log(w.name, 'Test-Webhook gesendet', 'info');
+    this.log(w.name, 'Test webhook sent', 'info');
+  }
+
+  setBotReconnectSettings(name, input) {
+    const w = this.workers.get(String(name || ''));
+    if (!w) throw new Error('Unknown bot');
+    const current = this.getBotSettings(w.name);
+    const reconnect = normalizeReconnectSettings(input, current.reconnect);
+    this.botSettings[w.name] = { ...current, reconnect };
+    this.save();
+    this.log(w.name, `Reconnect command saved (${reconnect.commandEnabled ? 'on' : 'off'})`, 'info');
+    this.touch();
+  }
+
+  // ------------------------------------------------------------ Item drops
+
+  async dropItems(name, requests) {
+    const w = this.workers.get(String(name || ''));
+    if (!w) throw new Error('Unknown bot');
+    return w.dropFromSlots(requests);
+  }
+
+  async dropAll(name, options = {}) {
+    const w = this.workers.get(String(name || ''));
+    if (!w) throw new Error('Unknown bot');
+    return w.dropEverything({ includeEquipped: options.includeEquipped !== false });
   }
 
   // ------------------------------------------------------------ Start / Stop
 
   start() {
-    if (!this.area) throw new Error('Bitte zuerst einen Bereich (Pos1/Pos2) speichern');
-    if (!this.workers.size) throw new Error('Keine Bots verbunden');
+    if (!this.area) throw new Error('Please save an area (Pos 1 / Pos 2) first');
+    if (![...this.workers.values()].some((w) => this.isShared(w))) throw new Error('No bots connected');
     const area = planner.normalizeArea(this.area.p1, this.area.p2);
-    const workers = [...this.workers.values()];
+    const workers = [...this.workers.values()].filter((w) => this.isShared(w));
     const parts = planner.split(area, workers.length);
     this.mining = true;
     workers.forEach((w, i) => {
       w.region = parts[i];
       w.resetCursor();
-      if (!w.region) { w.setStatus('idle', 'Kein Abschnitt (zu viele Bots)'); return; }
+      if (!w.region) { w.setStatus('idle', 'No section (too many bots)'); return; }
       if (w.bot && w.spawned) w.startJob();
-      else w.setStatus(w.status, 'Startet nach dem Verbinden');
+      else w.setStatus(w.status, 'Starts after connecting');
     });
-    this.log('system', `Start: ${workers.length} Bot(s) bauen ${planner.volume(area)} Bloecke ab`, 'info');
+    this.log('system', `Start: ${workers.length} bot(s) are mining ${planner.volume(area)} blocks`, 'info');
     this.touch();
   }
 
   stop() {
     this.mining = false;
     for (const w of this.workers.values()) w.stopJob();
-    this.log('system', 'Gestoppt - alle Bots stehen still', 'info');
+    this.log('system', 'Stopped - all bots are standing still', 'info');
     this.touch();
   }
 
@@ -443,9 +531,9 @@ class BotManager extends EventEmitter {
     for (const w of selected) {
       w.stopJob();
       w.region = null;
-      this.log(w.name, 'Aufgabe durch Account gestoppt', 'info');
+      this.log(w.name, 'Task stopped by the account owner', 'info');
     }
-    if (!selected.length) throw new Error('Diesem Account sind keine verbundenen Bots zugewiesen.');
+    if (!selected.length) throw new Error('This account has no connected bots.');
     const activeRegions = [...this.workers.values()].some(w => w.region);
     if (!activeRegions) this.mining = false;
     this.touch();
@@ -455,18 +543,18 @@ class BotManager extends EventEmitter {
     const active = [...this.workers.values()].filter((w) => w.region);
     if (this.mining && active.length && active.every((w) => w.status === 'done')) {
       this.mining = false;
-      this.log('system', 'Alle Abschnitte sind fertig', 'info');
+      this.log('system', 'All sections are finished', 'info');
       this.touch();
     }
   }
 
   setBotProfile(name, profile, options = {}) {
     const w = this.workers.get(String(name || ''));
-    if (!w) throw new Error('Unbekannter Bot');
-    if (this.mining) throw new Error('Bitte zuerst den gemeinsamen Abbau stoppen');
-    if (profile === 'idle') { w.stopProfile(); this.log(w.name, 'Aufgabe gestoppt', 'info'); return; }
+    if (!w) throw new Error('Unknown bot');
+    if (this.mining && this.isShared(w)) throw new Error('Please stop the shared mining first');
+    if (profile === 'idle') { w.stopProfile(); this.log(w.name, 'Task stopped', 'info'); return; }
     w.startProfile(profile, options);
-    this.log(w.name, `Aufgabenprofil gestartet: ${profile}`, 'info');
+    this.log(w.name, `Task profile started: ${profile}`, 'info');
     this.touch();
   }
 
@@ -474,24 +562,24 @@ class BotManager extends EventEmitter {
 
   async sendChat(target, text) {
     const t = String(text || '').trim();
-    if (!t) throw new Error('Leere Nachricht');
-    if (t.length > 256) throw new Error('Maximal 256 Zeichen');
+    if (!t) throw new Error('Empty message');
+    if (t.length > 256) throw new Error('At most 256 characters');
     if (target && target !== 'all') {
       const w = this.workers.get(target);
-      if (!w) throw new Error('Unbekannter Bot');
+      if (!w) throw new Error('Unknown bot');
       await w.chat(t);
       return;
     }
     const ready = [...this.workers.values()].filter((w) => w.bot && w.spawned);
-    if (!ready.length) throw new Error('Kein Bot ist verbunden');
+    if (!ready.length) throw new Error('No bot is connected');
     let sent = 0;
     const errors = [];
     for (const w of ready) {
-      try { await w.chat(t); sent++; } catch (e) { errors.push(`${w.accountName || w.name}: ${e.message}`); this.log(w.name, `Chat konnte nicht gesendet werden: ${e.message}`, 'error'); }
+      try { await w.chat(t); sent++; } catch (e) { errors.push(`${w.accountName || w.name}: ${e.message}`); this.log(w.name, `Chat could not be sent: ${e.message}`, 'error'); }
       await sleep(300); // nicht alle gleichzeitig, sonst Spam-Kick
     }
-    if (!sent) throw new Error(errors.join(' | ') || 'Nachricht konnte an keinen verbundenen Bot gesendet werden');
+    if (!sent) throw new Error(errors.join(' | ') || 'The message could not be sent to any connected bot');
   }
 }
 
-module.exports = { BotManager };
+module.exports = { BotManager, isInternalHost };

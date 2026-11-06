@@ -29,11 +29,11 @@ test('death settings: validation, keeping and clearing the stored URL', () => {
   assert.equal(kept.command, '/back');
   const cleared = normalizeDeathSettings({ webhookEnabled: false, clearWebhook: true }, first);
   assert.equal(cleared.webhookUrl, '');
-  assert.throws(() => normalizeDeathSettings({ commandEnabled: true, command: '' }), /leer/);
-  assert.throws(() => normalizeDeathSettings({ webhookEnabled: true }), /keine URL/);
-  assert.throws(() => normalizeDeathSettings({ command: 'a\nb' }), /eine Zeile/);
+  assert.throws(() => normalizeDeathSettings({ commandEnabled: true, command: '' }), /enabled but empty/);
+  assert.throws(() => normalizeDeathSettings({ webhookEnabled: true }), /no URL is saved/);
+  assert.throws(() => normalizeDeathSettings({ command: 'a\nb' }), /single line/);
   assert.throws(() => normalizeDeathSettings({ command: 'x'.repeat(257) }), /256/);
-  assert.throws(() => normalizeDeathSettings({ delaySec: 500 }), /0 und 120/);
+  assert.throws(() => normalizeDeathSettings({ delaySec: 500 }), /0 and 120/);
   assert.throws(() => normalizeDeathSettings({ webhookUrl: 'http://example.com' }), /https/);
 });
 
@@ -50,8 +50,8 @@ test('death cause: server message first, then a recent chat line, else unknown',
   assert.equal(extractDeathCause({ packetText: '§cSteve was slain by Zombie', chatLines: [], names: ['Steve'], now }), 'Steve was slain by Zombie');
   const chat = [{ t: now - 30000, text: 'Steve fell from a high place' }, { t: now - 2000, text: 'Alex hat Hallo gesagt' }, { t: now - 1000, text: 'Steve was blown up by Creeper' }];
   assert.equal(extractDeathCause({ packetText: '', chatLines: chat, names: ['Steve'], now }), 'Steve was blown up by Creeper');
-  assert.equal(extractDeathCause({ packetText: '  ', chatLines: [chat[0]], names: ['Steve'], now }), 'unbekannt', 'zu alte Zeilen zaehlen nicht');
-  assert.equal(extractDeathCause({ packetText: '', chatLines: [], names: [], now }), 'unbekannt');
+  assert.equal(extractDeathCause({ packetText: '  ', chatLines: [chat[0]], names: ['Steve'], now }), 'unknown', 'zu alte Zeilen zaehlen nicht');
+  assert.equal(extractDeathCause({ packetText: '', chatLines: [], names: [], now }), 'unknown');
 });
 
 test('payload: Discord embed without pings, generic JSON elsewhere', () => {
@@ -59,10 +59,10 @@ test('payload: Discord embed without pings, generic JSON elsewhere', () => {
   const discord = buildDeathPayload(info, HOOK);
   assert.deepEqual(discord.allowed_mentions, { parse: [] });
   assert.equal(discord.embeds[0].description, 'Steve was slain by @everyone');
-  assert.equal(discord.embeds[0].fields.find((f) => f.name === 'Minecraft-Name').value, 'Steve');
+  assert.equal(discord.embeds[0].fields.find((f) => f.name === 'Minecraft name').value, 'Steve');
   const generic = buildDeathPayload(info, 'https://hooks.example.com/x');
   assert.equal(generic.minecraftName, 'Steve');
-  assert.match(generic.text, /Steve ist gestorben/);
+  assert.match(generic.text, /Steve died/);
   assert.equal(buildDeathPayload({ ...info, cause: 'x'.repeat(5000) }, HOOK).embeds[0].description.length, 1000);
 });
 
@@ -122,7 +122,7 @@ test('death: webhook with name, cause, server and position; secret stays out of 
   const embed = posts[0].body.embeds[0];
   assert.equal(embed.description, 'Steve was slain by Zombie');
   const field = (n) => embed.fields.find((f) => f.name === n).value;
-  assert.equal(field('Minecraft-Name'), 'Steve');
+  assert.equal(field('Minecraft name'), 'Steve');
   assert.equal(field('Server'), 'play.example.net');
   assert.equal(field('Position'), '10 64 -4');
   assert.equal(field('Dimension'), 'overworld');
@@ -155,7 +155,7 @@ test('no webhook is sent when disabled; a failing webhook only logs a warning', 
   failing.bot.emit('death');
   await sleep(1400);
   assert.equal(calls, 1);
-  assert.ok(failing.logs.some((l) => l.level === 'warn' && /Webhook fehlgeschlagen/.test(l.text)));
+  assert.ok(failing.logs.some((l) => l.level === 'warn' && /Death webhook failed/.test(l.text)));
 });
 
 test('respawn: command runs after the configured wait, then the task resumes', async () => {
@@ -175,8 +175,8 @@ test('respawn: command runs after the configured wait, then the task resumes', a
   assert.deepEqual(bot.sent, ['/home base']);
   assert.equal(started, 1);
   assert.equal(w.resume, null);
-  assert.ok(logs.some((l) => /Todes-Befehl ausgeführt/.test(l.text)));
-  assert.ok(logs.some((l) => /fortgesetzt/.test(l.text)));
+  assert.ok(logs.some((l) => /Death command/.test(l.text)));
+  assert.ok(logs.some((l) => /resumed after respawn/.test(l.text)));
 });
 
 test('respawn: AFK/fishing resume with their options, and stopping cancels the resume', async () => {
@@ -207,7 +207,7 @@ test('respawn: physics is forced back on when the server never sends a position'
   bot.emit('spawn'); // kein forcedMove
   await sleep(400);
   assert.equal(forced, 1);
-  assert.ok(logs.some((l) => /Physik manuell wieder eingeschaltet/.test(l.text)));
+  assert.ok(logs.some((l) => /physics re-enabled manually/.test(l.text)));
   assert.equal(bot.physicsEnabled, true);
 
   // kommt die Position rechtzeitig, wird nichts erzwungen
@@ -265,7 +265,7 @@ test('manager persists per-bot death settings, hides the URL from snapshots and 
 
   const m1 = new BotManager({ dataDir: dir });
   m1.setBotDeathSettings('Acc1', { commandEnabled: true, command: '/home', delaySec: 4, webhookEnabled: true, webhookUrl: HOOK });
-  assert.throws(() => m1.setBotDeathSettings('Nope', {}), /Unbekannter Bot/);
+  assert.throws(() => m1.setBotDeathSettings('Nope', {}), /Unknown bot/);
 
   const m2 = new BotManager({ dataDir: dir }); // neu geladen
   assert.equal(m2.getBotSettings('Acc1').death.webhookUrl, HOOK);
@@ -278,9 +278,9 @@ test('manager persists per-bot death settings, hides the URL from snapshots and 
   globalThis.fetch = async (url, init) => { posts.push(JSON.parse(init.body)); return { ok: true, status: 204 }; };
   t.after(() => { globalThis.fetch = realFetch; });
   await m2.testDeathWebhook('Acc1');
-  assert.equal(posts[0].embeds[0].title, 'Bot gestorben (Test)');
+  assert.equal(posts[0].embeds[0].title, 'Bot died (test)');
   m2.setBotDeathSettings('Acc1', { webhookEnabled: false, clearWebhook: true });
-  await assert.rejects(m2.testDeathWebhook('Acc1'), /keine Webhook-URL/);
+  await assert.rejects(m2.testDeathWebhook('Acc1'), /No webhook URL/);
 
   m2.removeBot('Acc1');
   assert.equal(m2.getBotSettings('Acc1').death, undefined, 'beim Entfernen wird auch die Einstellung geloescht');

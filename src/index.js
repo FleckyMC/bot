@@ -9,7 +9,7 @@ const { Server } = require('socket.io');
 const ROOT = path.join(__dirname, '..');
 const ENV_FILE = path.join(ROOT, '.env');
 
-// .env laden; fehlt das Passwort, wird eins erzeugt und in .env gespeichert
+// Load .env; if no password is set, one is generated and saved to .env
 require('dotenv').config({ path: ENV_FILE, quiet: true });
 if (!process.env.DASHBOARD_PASSWORD) {
   const pw = crypto.randomBytes(9).toString('base64url');
@@ -18,10 +18,10 @@ if (!process.env.DASHBOARD_PASSWORD) {
   process.env.DASHBOARD_USER = user;
   process.env.DASHBOARD_PASSWORD = pw;
   console.log('==============================================');
-  console.log(' Kein Passwort gesetzt - es wurde eins erzeugt:');
-  console.log(`   Benutzer : ${user}`);
-  console.log(`   Passwort : ${pw}`);
-  console.log(' (gespeichert in .env, dort kannst du es aendern)');
+  console.log(' No password was set - one has been generated:');
+  console.log(`   User     : ${user}`);
+  console.log(`   Password : ${pw}`);
+  console.log(' (saved in .env, where you can change it)');
   console.log('==============================================');
 }
 
@@ -35,10 +35,17 @@ const FORCE_SECURE = String(process.env.COOKIE_SECURE).toLowerCase() === 'true';
 const auth = require('./auth');
 const { authorizeAction } = require('./access');
 const { BotManager } = require('./botManager');
+const { normalizeReconnectSettings } = require('./botSettings');
 
 auth.configure(path.join(ROOT, 'data', 'users.json'), USER, PASSWORD);
 const manager = new BotManager({ dataDir: path.join(ROOT, 'data'), version: VERSION });
 const isAdmin = (user) => !!user && user.role === 'admin';
+// Bots connected by a regular user belong to that user; everything else is shared (admin) and only the admin controls it.
+const ownerOf = (w) => auth.getUsers().find((u) => u.role !== 'admin' && Array.isArray(u.botNames) && u.botNames.includes(w.name)) || null;
+manager.isShared = (w) => !ownerOf(w);
+manager.on('account_added', ({ name, ownerId }) => { const u = ownerId && auth.getUsers().find((x) => x.id === ownerId); if (u && u.role !== 'admin') auth.addOwnedBot(ownerId, name); });
+manager.on('bot_removed', ({ name }) => auth.removeOwnedBots([name]));
+const usedSlots = (user) => (Array.isArray(user.botNames) ? user.botNames.filter((n) => manager.workers.has(n)).length : 0) + manager.pendingCountFor(user.id);
 const requireAdmin = (req, res, next) => isAdmin(auth.sessionUser(auth.tokenFrom(req))) ? next() : res.status(403).json({ error: 'Admin only' });
 
 const app = express();
@@ -61,13 +68,15 @@ app.use((req, res, next) => {
 
 app.use(express.urlencoded({ extended: false, limit: '4kb' }));
 
-// ---- Oeffentlich: nur die Login-Seite
+// ---- Public: the sign-in page and its brand assets only
 app.get('/login', (req, res) => {
   if (auth.isValid(auth.tokenFrom(req))) return res.redirect('/');
   res.sendFile(path.join(ROOT, 'public', 'login.html'));
 });
 app.get('/login.css', (req, res) => res.sendFile(path.join(ROOT, 'public', 'login.css')));
 app.get('/login.js', (req, res) => res.sendFile(path.join(ROOT, 'public', 'login.js')));
+const PUBLIC_ASSETS = /^\/(logo\.png|logo-small\.png|favicon\.png|favicon\.ico|apple-touch-icon\.png|fonts\/[A-Za-z0-9._-]+\.(woff2|txt))$/;
+app.use((req, res, next) => (req.method === 'GET' && PUBLIC_ASSETS.test(req.path)) ? express.static(path.join(ROOT, 'public'), { maxAge: '7d' })(req, res, next) : next());
 
 app.post('/login', (req, res) => {
   const r = auth.login(req.body.username, req.body.password, req.ip);
@@ -78,17 +87,10 @@ app.post('/login', (req, res) => {
 });
 
 app.get('/api/me', (req, res) => { const user = auth.sessionUser(auth.tokenFrom(req)); if (!user) return res.status(401).json({error:'Not signed in'}); res.json({user:auth.publicUser(user)}); });
-app.get('/api/admin/users', (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, requireAdmin, (req, res) => res.json({users:auth.getUsers().map(auth.publicUser)}));
-app.get('/api/admin/bots', (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, requireAdmin, (req, res) => {
-  const users = auth.getUsers().filter(u => u.role !== 'admin');
-  const assigned = new Map();
-  for (const user of users) for (const n of (user.botNames || [])) assigned.set(String(n).toLowerCase(), user.username);
-  const bots = [...manager.workers.values()].map(w => ({ name:w.name, accountName:w.accountName || manager.accountNames[w.name] || '', assignedTo:assigned.get(String(w.accountName || manager.accountNames[w.name] || w.name).toLowerCase()) || assigned.get(String(w.name).toLowerCase()) || null }));
-  res.json({bots});
-});
-app.post('/api/admin/users', express.json({limit:'16kb'}), (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, requireAdmin, (req, res) => { try { res.status(201).json({user:auth.createUser(req.body || {})}); } catch(e) { res.status(400).json({error:e.message}); } });
-app.patch('/api/admin/users/:id', express.json({limit:'16kb'}), (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, requireAdmin, (req, res) => { try { res.json({user:auth.updateUser(req.params.id, req.body || {})}); } catch(e) { res.status(400).json({error:e.message}); } });
-app.delete('/api/admin/users/:id', (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, requireAdmin, (req, res) => { try { auth.deleteUser(req.params.id); res.status(204).end(); } catch(e) { res.status(400).json({error:e.message}); } });
+app.get('/api/admin/users', (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, requireAdmin, (req, res) => res.json({users:auth.getUsers().map((u) => ({ ...auth.publicUser(u), botCount: usedSlots(u), bots: (u.botNames || []).filter((n) => manager.workers.has(n)).map((n) => ({ name: n, accountName: manager.workers.get(n).accountName || manager.accountNames[n] || '' })) }))}));
+app.post('/api/admin/users', express.json({limit:'16kb'}), (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, requireAdmin, (req, res) => { try { const { botNames, ...body } = req.body || {}; res.status(201).json({user:auth.createUser(body)}); } catch(e) { res.status(400).json({error:e.message}); } });
+app.patch('/api/admin/users/:id', express.json({limit:'16kb'}), (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, requireAdmin, (req, res) => { try { const { botNames, ...body } = req.body || {}; res.json({user:auth.updateUser(req.params.id, body)}); } catch(e) { res.status(400).json({error:e.message}); } });
+app.delete('/api/admin/users/:id', (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, requireAdmin, (req, res) => { try { const victim = auth.getUsers().find((x) => x.id === req.params.id); const theirs = victim && Array.isArray(victim.botNames) ? [...victim.botNames] : []; auth.deleteUser(req.params.id); for (const n of theirs) { try { manager.removeBot(n); } catch { /* already gone */ } } res.status(204).end(); } catch(e) { res.status(400).json({error:e.message}); } });
 app.post('/api/password', express.json({limit:'8kb'}), (req, res, next) => { if (!auth.isValid(auth.tokenFrom(req))) return res.status(401).json({error:'Not signed in'}); next(); }, (req, res) => { try { const u=auth.sessionUser(auth.tokenFrom(req)); auth.changePassword(u.id, req.body.currentPassword, req.body.newPassword); res.json({ok:true}); } catch(e) { res.status(400).json({error:e.message}); } });
 app.post('/logout', (req, res) => {
   auth.logout(auth.tokenFrom(req));
@@ -96,15 +98,15 @@ app.post('/logout', (req, res) => {
   res.redirect('/login');
 });
 
-// ---- Alles andere nur mit Login
+// ---- Everything else requires sign-in
 app.use((req, res, next) => {
   if (auth.isValid(auth.tokenFrom(req))) return next();
   if (req.method === 'GET' && req.accepts('html')) return res.redirect('/login');
-  res.status(401).send('Nicht angemeldet');
+  res.status(401).send('Not signed in');
 });
 app.use(express.static(path.join(ROOT, 'public'), { index: 'index.html', extensions: ['html'] }));
 
-// ---- Socket.io: Login-Cookie und Origin pruefen
+// ---- Socket.io: check sign-in cookie and origin
 const socketUserById = new Map();
 const viewAsBySocket = new Map();
 const userForSocket = socket => auth.sessionUser(auth.tokenFrom(socket.request));
@@ -123,7 +125,7 @@ io.use((socket, next) => {
 
 const actions = {
   connect_bots: (p) => manager.connect(p || {}),
-  connect_selected: (p) => manager.connectSelected(p || {}),
+  connect_selected: (p, user) => manager.connectSelected(p || {}, { restrictInternal: !isAdmin(user) }),
   disconnect_selected: (p) => manager.disconnectSelected(p && p.names),
   disconnect_bots: () => manager.disconnect(),
   set_area: (p) => manager.setArea(p && p.p1, p && p.p2),
@@ -133,10 +135,21 @@ const actions = {
   stop: () => manager.stop(),
   chat: (p) => manager.sendChat(p && p.target, p && p.text),
   bot_profile: (p) => manager.setBotProfile(p && p.name, p && p.profile, p && p.options || {}),
-  add_bot: (p) => manager.addBot(p || {}),
+  add_bot: (p, user) => {
+    if (!isAdmin(user)) {
+      const limit = user.botLimit || 0;
+      const used = usedSlots(user);
+      if (used >= limit) throw new Error(limit === 0 ? 'Your account is not allowed to connect Minecraft accounts. Ask an admin to raise your limit.' : `Account limit reached (${used}/${limit}). Ask an admin to raise your limit.`);
+    }
+    manager.addBot({ ownerId: user.id });
+  },
+  cancel_signin: (p, user) => manager.cancelSignIn(p && p.name, isAdmin(user) ? null : user.id),
   remove_bot: (p) => manager.removeBot(p && p.name),
   set_bot_sneak: (p) => manager.setBotSneak(p && p.name, p && p.sneak),
   set_bot_death: (p) => manager.setBotDeathSettings(p && p.name, p && p.death),
+  set_bot_reconnect: (p) => manager.setBotReconnectSettings(p && p.name, p && p.reconnect),
+  drop_items: (p) => manager.dropItems(p && p.name, p && p.items),
+  drop_all: (p) => manager.dropAll(p && p.name, p || {}),
   test_death_webhook: (p) => manager.testDeathWebhook(p && p.name),
   clear_logs: () => { manager.logs.length = 0; for (const client of io.sockets.sockets.values()) client.emit('logs_cleared'); },
 };
@@ -148,7 +161,23 @@ const owned = (name, user) => {
   const profileName = worker && worker.accountName || manager.accountNames[name];
   return assigned.has(String(name).toLowerCase()) || (!!profileName && assigned.has(String(profileName).toLowerCase()));
 };
-const snapshotFor = (user) => { const snap=manager.snapshot(); snap.isAdmin=isAdmin(user); if (isAdmin(user)) return snap; snap.bots=snap.bots.filter(b=>owned(b.name,user)); snap.names=snap.bots.map(b=>b.name); snap.pendingSignIns=[]; return {...snap,connection:null,area:null,settings:{},mining:false}; };
+const snapshotFor = (user) => {
+  const snap = manager.snapshot();
+  const admin = isAdmin(user);
+  snap.isAdmin = admin;
+  const everyone = auth.getUsers();
+  snap.me = { id: user.id, username: user.username, role: user.role };
+  const limit = user.botLimit || 0;
+  snap.limits = { used: usedSlots(user), limit, unlimited: admin };
+  if (admin) {
+    snap.bots = snap.bots.map((b) => { const o = everyone.find((u) => u.role !== 'admin' && Array.isArray(u.botNames) && u.botNames.includes(b.name)); return { ...b, owner: o ? o.username : null }; });
+    return snap;
+  }
+  snap.bots = snap.bots.filter((b) => owned(b.name, user));
+  snap.names = snap.bots.map((b) => b.name);
+  snap.pendingSignIns = (snap.pendingSignIns || []).filter((x) => x.ownerId === user.id);
+  return { ...snap, connection: null, area: null, settings: {}, mining: false };
+};
 io.on('connection', (socket) => {
   const originalUser = () => userForSocket(socket);
   const currentUser = () => { const original=originalUser(); const target=viewAsBySocket.get(socket.id); return isAdmin(original)&&target ? auth.getUsers().find(u=>u.id===target) || original : original; };
@@ -195,7 +224,7 @@ io.on('connection', (socket) => {
     if (!fn) return reply({ ok: false, error: 'Unknown action' });
     try {
       authorizeAction(user, type, payload, owned);
-      await fn(payload);
+      await fn(payload, user);
       reply({ ok: true });
     } catch (e) {
       reply({ ok: false, error: e.message });
@@ -209,12 +238,12 @@ const broadcastState = () => { for (const socket of io.sockets.sockets.values())
 manager.on('change', broadcastState);
 setInterval(() => { if (io.engine.clientsCount) broadcastState(); }, 1000).unref();
 
-process.on('unhandledRejection', (e) => manager.log('system', `Unbehandelter Fehler: ${e && e.message ? e.message : e}`, 'error'));
-process.on('uncaughtException', (e) => manager.log('system', `Fehler: ${e && e.message ? e.message : e}`, 'error'));
+process.on('unhandledRejection', (e) => manager.log('system', `Unhandled error: ${e && e.message ? e.message : e}`, 'error'));
+process.on('uncaughtException', (e) => manager.log('system', `Error: ${e && e.message ? e.message : e}`, 'error'));
 for (const sig of ['SIGINT', 'SIGTERM']) {
-  process.on(sig, () => { try { manager.disconnect(true); } catch { /* egal */ } process.exit(0); });
+  process.on(sig, () => { try { manager.disconnect(true); } catch { /* ignore */ } process.exit(0); });
 }
 
 server.listen(PORT, HOST, () => {
-  console.log(`Dashboard laeuft auf http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}  (Minecraft ${VERSION})`);
+  console.log(`Dashboard running on http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}  (Minecraft ${VERSION})`);
 });

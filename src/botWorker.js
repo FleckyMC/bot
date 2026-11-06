@@ -8,6 +8,7 @@ const { installPhysicsFixes } = require('./physicsFix');
 const { getPhysicsPlugin } = require('./tickEndPhysics');
 const { startAutoEat } = require('./autoEat');
 const { extractDeathCause, buildDeathPayload, sendWebhook, publicDeathSettings } = require('./deathNotify');
+const { publicReconnectSettings } = require('./botSettings');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -17,6 +18,9 @@ const LIQUIDISH = new Set(['water', 'lava', 'bubble_column', 'kelp', 'kelp_plant
 const FLUID = new Set(['water', 'lava']);
 const NEIGHBORS = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
 const OFFHAND_SLOT = 45;
+// Player inventory window layout: 0 craft result, 1-4 craft grid, 5-8 armor, 9-35 main, 36-44 hotbar, 45 offhand.
+const FIRST_ITEM_SLOT = 5;
+const DROP_CLICK_DELAY_MS = 70;
 
 function remaining(item) {
   if (!item || !item.maxDurability) return null;
@@ -26,6 +30,10 @@ function remaining(item) {
 function tierOf(name) {
   const i = TIERS.indexOf(name.replace('_pickaxe', ''));
   return i;
+}
+
+function hasEnchants(item) {
+  try { return !!item && Array.isArray(item.enchants) && item.enchants.length > 0; } catch { return false; }
 }
 
 function hasMending(item) {
@@ -45,6 +53,8 @@ class BotWorker {
     this.status = 'offline';
     this.detail = '';
     this.wantConnected = false;
+    // Server this bot connects to (set by the dashboard per bot). Falls back to the manager-wide default.
+    this.target = null;
     this.attempts = 0;
     this.reconnectTimer = null;
     this.region = null;
@@ -76,10 +86,10 @@ class BotWorker {
     clearTimeout(this.reconnectTimer);
     if (this.bot) return;
     const m = this.m;
-    const c = m.connection;
+    const c = this.target || m.connection;
     this.serverAddress = { host: c.host, port: c.port || 25565 };
     this.wantConnected = true;
-    this.setStatus('connecting', 'Verbinde...');
+    this.setStatus('connecting', 'Connecting...');
 
     const safe = this.name.replace(/[^A-Za-z0-9_.@-]/g, '_');
     let bot;
@@ -102,7 +112,7 @@ class BotWorker {
         plugins: { physics: getPhysicsPlugin() },
       });
     } catch (e) {
-      m.log(this.name, `Start fehlgeschlagen: ${e.message}`, 'error');
+      m.log(this.name, `Failed to start: ${e.message}`, 'error');
       this.setStatus('error', e.message);
       return;
     }
@@ -111,7 +121,9 @@ class BotWorker {
     // Knockback/velocity comes from the Minecraft server; don't pin the entity in place.
     bot.physicsEnabled = true;
     // 1.21.9+: Knockback korrekt dekodieren (lpVec3) und Spieler-Kollision (Anstupsen) nachbilden.
-    installPhysicsFixes(bot, (msg, level) => m.log(this.name, msg, level), {
+    // Knockback/physics diagnostics are only useful when debugging, so they stay out of the activity
+    // log; real warnings and errors are still shown.
+    installPhysicsFixes(bot, (msg, level) => { if (level === 'warn' || level === 'error') m.log(this.name, msg, level); }, {
       enabled: () => this.m.settings.entityPush !== false,
     });
     bot.loadPlugin(pathfinder);
@@ -131,6 +143,7 @@ class BotWorker {
       if (this.bot !== bot) return;
       this.spawned = true;
       this.newAccountSignIn = false;
+      const wasReconnect = this.attempts > 0;
       this.attempts = 0;
       if (bot.username && bot.username !== this.accountName) {
         this.accountName = bot.username;
@@ -139,10 +152,9 @@ class BotWorker {
       }
       m.clearMsa(this.name);
       this.setupMovements();
-      m.log(this.name, 'Verbunden und gespawnt', 'info');
-      this.setStatus('idle', 'Bereit');
-      if (m.mining && this.region) this.startJob();
-      else if (this.profile !== 'idle') this.startProfile(this.profile, this.profileOptions || {});
+      m.log(this.name, 'Connected and spawned', 'info');
+      this.setStatus('idle', 'Ready');
+      this.afterJoin(bot, wasReconnect);
     });
 
     bot.on('messagestr', (msg, pos) => {
@@ -156,10 +168,10 @@ class BotWorker {
         const ChatMessage = require('prismarine-chat')(bot.registry);
         text = ChatMessage.fromNotch(reason).toString() || text;
       } catch { /* Rohtext reicht */ }
-      m.log(this.name, `Gekickt: ${String(text).slice(0, 300)}`, 'warn');
+      m.log(this.name, `Kicked: ${String(text).slice(0, 300)}`, 'warn');
     });
 
-    bot.on('error', (e) => m.log(this.name, `Fehler: ${e && e.message ? e.message : e}`, 'error'));
+    bot.on('error', (e) => m.log(this.name, `Error: ${e && e.message ? e.message : e}`, 'error'));
 
     bot.on('end', (reason) => {
       if (this.bot !== bot) return;
@@ -168,7 +180,7 @@ class BotWorker {
       this.resume = null;
       this.pendingDeathCommand = null;
       this.cancelJob();
-      m.log(this.name, `Verbindung getrennt (${reason || 'unbekannt'})`, 'warn');
+      m.log(this.name, `Connection lost (${reason || 'unknown'})`, 'warn');
       if (!this.wantConnected) { this.setStatus('offline'); return; }
       this.attempts++;
       if (this.attempts > 5) {
@@ -195,6 +207,45 @@ class BotWorker {
     if (this.autoEat) { this.autoEat.stop(); this.autoEat = null; }
     if (bot) { try { bot.quit(); } catch { /* egal */ } }
     this.setStatus('offline');
+  }
+
+  // ---------------------------------------------------------------- After joining the server
+
+  reconnectSettings() {
+    const s = typeof this.m.getBotSettings === 'function' ? this.m.getBotSettings(this.name) : null;
+    return (s && s.reconnect) || null;
+  }
+
+  // Runs after every successful join: first the optional join/reconnect command (once the bot is
+  // really inside the server), then the interrupted task continues.
+  afterJoin(bot, wasReconnect) {
+    const resumeTask = () => {
+      if (this.bot !== bot || !this.spawned) return;
+      try {
+        if (this.m.mining && this.region) this.startJob();
+        else if (this.profile !== 'idle') this.startProfile(this.profile, this.profileOptions || {});
+      } catch (e) {
+        this.m.log(this.name, `Could not resume the task: ${e && e.message ? e.message : e}`, 'warn');
+      }
+    };
+    const cfg = this.reconnectSettings();
+    const due = !!cfg && cfg.commandEnabled && !!cfg.command && (cfg.runOn === 'always' || wasReconnect);
+    if (!due) { resumeTask(); return; }
+    (async () => {
+      this.setStatus('idle', 'Waiting to send the join command');
+      await sleep((cfg.delaySec ?? 5) * 1000);
+      if (this.bot !== bot || !this.spawned) return;
+      try {
+        await this.chat(cfg.command);
+        this.m.log(this.name, `${wasReconnect ? 'Reconnect' : 'Join'} command sent: ${cfg.command}`, 'info');
+      } catch (e) {
+        this.m.log(this.name, `Reconnect command failed: ${e && e.message ? e.message : e}`, 'warn');
+      }
+      await sleep(1500); // a teleport command needs a moment before the task continues
+      if (this.bot !== bot || !this.spawned) return;
+      if (this.status === 'idle' && /^Waiting to send/.test(this.detail)) this.setStatus('idle', 'Ready');
+      resumeTask();
+    })().catch((e) => this.m.log(this.name, `Join handling: ${e && e.message ? e.message : e}`, 'warn'));
   }
 
   setupMovements() {
@@ -230,6 +281,77 @@ class BotWorker {
       catch (e) { this.m.log(this.name, `Item drop failed: ${e.message}`, 'warn'); }
       finally { this.dropBusy = false; }
     });
+  }
+
+  // ---------------------------------------------------------------- Manual item drops (dashboard)
+
+  // requests: [{ slot, name, count }]. `count` is how many items of that stack to throw ('all' = whole stack).
+  // Everything is validated first, so a stale selection never drops anything by accident.
+  async dropFromSlots(requests) {
+    const bot = this.bot;
+    if (!bot || !this.spawned) throw new Error('This bot is not connected');
+    if (this.dropBusy) throw new Error('This bot is already dropping items');
+    if (!Array.isArray(requests) || !requests.length) throw new Error('Select at least one item to drop');
+    if (requests.length > 50) throw new Error('Too many items selected');
+    const plan = [];
+    const seen = new Set();
+    for (const r of requests) {
+      const slot = Number(r && r.slot);
+      if (!Number.isInteger(slot) || slot < FIRST_ITEM_SLOT || slot > OFFHAND_SLOT) throw new Error('Invalid inventory slot');
+      if (seen.has(slot)) continue;
+      seen.add(slot);
+      const item = bot.inventory.slots[slot];
+      if (!item) throw new Error(`Slot ${slot} is empty - the inventory changed, please select again`);
+      if (r.name && String(r.name) !== item.name) throw new Error(`Slot ${slot} no longer contains ${r.name}`);
+      const count = r.count === undefined || r.count === null || r.count === 'all' ? item.count : Number(r.count);
+      if (!Number.isInteger(count) || count < 1) throw new Error(`Invalid amount for ${item.name}`);
+      if (count > item.count) throw new Error(`Cannot drop ${count}x ${item.name}: the stack only has ${item.count}`);
+      plan.push({ slot, name: item.name, count });
+    }
+    this.dropBusy = true;
+    let total = 0;
+    try {
+      for (const step of plan) total += await this.dropSlot(bot, step);
+    } finally {
+      this.dropBusy = false;
+    }
+    this.m.log(this.name, `Dropped ${total} item(s): ${plan.map((p) => `${p.count}x ${p.name}`).join(', ')}`, 'info');
+    this.m.touch();
+    return total;
+  }
+
+  // Throws items out of one inventory slot using the "drop" click (like pressing Q / Ctrl+Q over the slot).
+  async dropSlot(bot, { slot, name, count }) {
+    const item = bot.inventory.slots[slot];
+    if (!item || item.name !== name) throw new Error(`Slot ${slot} changed while dropping`);
+    const stack = item.count;
+    if (count >= stack) {
+      await bot.clickWindow(slot, 1, 4); // Ctrl+Q: whole stack
+      await sleep(DROP_CLICK_DELAY_MS);
+      return stack;
+    }
+    for (let i = 0; i < count; i++) {
+      if (this.bot !== bot) throw new Error('Bot disconnected while dropping');
+      await bot.clickWindow(slot, 0, 4); // Q: one item
+      await sleep(DROP_CLICK_DELAY_MS);
+    }
+    return count;
+  }
+
+  // Drops every item the bot carries. Armor and the offhand are only included when asked for.
+  async dropEverything({ includeEquipped = true } = {}) {
+    const bot = this.bot;
+    if (!bot || !this.spawned) throw new Error('This bot is not connected');
+    const requests = [];
+    for (let slot = FIRST_ITEM_SLOT; slot <= OFFHAND_SLOT; slot++) {
+      const isEquipped = slot < 9 || slot === OFFHAND_SLOT;
+      if (isEquipped && !includeEquipped) continue;
+      const item = bot.inventory.slots[slot];
+      if (item) requests.push({ slot, name: item.name, count: item.count });
+    }
+    if (!requests.length) throw new Error('The inventory is already empty');
+    // dropFromSlots limits one request to 50 stacks; a full inventory with armor/offhand has up to 41.
+    return this.dropFromSlots(requests);
   }
 
   // ---------------------------------------------------------------- Sneaken
@@ -280,7 +402,7 @@ class BotWorker {
     // Der erste Spawn wird in connect() behandelt; jeder weitere ist ein Respawn/Dimensionswechsel.
     bot.on('spawn', () => {
       state.spawns++;
-      if (state.spawns > 1) this.handleRespawn(bot, state).catch((e) => this.m.log(this.name, `Respawn-Behandlung: ${e && e.message ? e.message : e}`, 'warn'));
+      if (state.spawns > 1) this.handleRespawn(bot, state).catch((e) => this.m.log(this.name, `Respawn handling: ${e && e.message ? e.message : e}`, 'warn'));
     });
   }
 
@@ -292,9 +414,9 @@ class BotWorker {
       server,
       position: pos && Number.isFinite(pos.x) ? `${Math.floor(pos.x)} ${Math.floor(pos.y)} ${Math.floor(pos.z)}` : null,
       dimension: bot.game && bot.game.dimension ? String(bot.game.dimension).replace(/^minecraft:/, '') : null,
-      task: ({ idle: 'keine', mining: 'Abbau', afk: 'AFK', fishing: 'Angeln', trading: 'Handel' })[this.profile] || this.profile,
+      task: ({ idle: 'none', mining: 'Mining', afk: 'AFK', fishing: 'Fishing', trading: 'Trading' })[this.profile] || this.profile,
     };
-    this.m.log(this.name, 'Bot ist gestorben', 'warn');
+    this.m.log(this.name, 'Bot died', 'warn');
 
     // Aufgabe pausieren statt sie mit toter Spielfigur weiterlaufen zu lassen (sonst werden
     // Bloecke faelschlich als unerreichbar markiert); nach dem Respawn geht es weiter.
@@ -304,7 +426,7 @@ class BotWorker {
     this.cancelJob();
     try { bot.pathfinder.stop(); } catch { /* egal */ }
     try { bot.clearControlStates(); } catch { /* egal */ }
-    this.setStatus('idle', 'Gestorben – wartet auf Respawn');
+    this.setStatus('idle', 'Dead – waiting for respawn');
 
     const settings = this.deathSettings();
     this.pendingDeathCommand = settings && settings.commandEnabled && settings.command
@@ -327,9 +449,9 @@ class BotWorker {
       state.packetCause = null;
       const payload = buildDeathPayload({ ...info, minecraftName: bot.username || this.accountName || this.name, cause, time: Date.now() }, url);
       await sendWebhook(url, payload);
-      this.m.log(this.name, `Todes-Webhook gesendet (${cause})`, 'info');
+      this.m.log(this.name, `Death webhook sent (${cause})`, 'info');
     } catch (e) {
-      this.m.log(this.name, `Todes-Webhook fehlgeschlagen: ${e && e.message ? e.message : e}`, 'warn');
+      this.m.log(this.name, `Death webhook failed: ${e && e.message ? e.message : e}`, 'warn');
     }
   }
 
@@ -348,7 +470,7 @@ class BotWorker {
     if (arrived || this.bot !== bot) return;
     if (typeof bot._forcePhysicsOn === 'function') {
       bot._forcePhysicsOn();
-      this.m.log(this.name, 'Server hat nach dem Respawn keine Position gesendet – Physik manuell wieder eingeschaltet', 'warn');
+      this.m.log(this.name, 'Server sent no position after respawn – physics re-enabled manually', 'warn');
     }
   }
 
@@ -366,9 +488,9 @@ class BotWorker {
       if (this.bot !== bot) return;
       try {
         await this.chat(command.command);
-        this.m.log(this.name, `Todes-Befehl ausgeführt: ${command.command}`, 'info');
+        this.m.log(this.name, `Death command sent: ${command.command}`, 'info');
       } catch (e) {
-        this.m.log(this.name, `Todes-Befehl fehlgeschlagen: ${e && e.message ? e.message : e}`, 'warn');
+        this.m.log(this.name, `Death command failed: ${e && e.message ? e.message : e}`, 'warn');
       }
     }
 
@@ -380,12 +502,12 @@ class BotWorker {
       try {
         if (resume.type === 'mining') { if (this.m.mining && this.region) this.startJob(); }
         else this.startProfile(resume.profile, resume.options);
-        this.m.log(this.name, 'Aufgabe nach dem Respawn fortgesetzt', 'info');
+        this.m.log(this.name, 'Task resumed after respawn', 'info');
       } catch (e) {
-        this.m.log(this.name, `Aufgabe konnte nach dem Respawn nicht fortgesetzt werden: ${e && e.message ? e.message : e}`, 'warn');
+        this.m.log(this.name, `Could not resume the task after respawn: ${e && e.message ? e.message : e}`, 'warn');
       }
-    } else if (this.status === 'idle' && /^Gestorben/.test(this.detail)) {
-      this.setStatus('idle', 'Bereit');
+    } else if (this.status === 'idle' && /^Dead/.test(this.detail)) {
+      this.setStatus('idle', 'Ready');
     }
   }
 
@@ -408,7 +530,7 @@ class BotWorker {
       await this.runJob(token);
     })().catch((e) => {
       if (!token.cancelled) {
-        this.m.log(this.name, `Job-Fehler: ${e.message}`, 'error');
+        this.m.log(this.name, `Job error: ${e.message}`, 'error');
         this.setStatus('error', e.message);
       }
     });
@@ -445,7 +567,7 @@ class BotWorker {
     const timeout = new Promise((_, reject) => {
       timer = setTimeout(() => {
         try { bot.pathfinder.stop(); } catch { /* egal */ }
-        reject(new Error('Wegfindung Zeitueberschreitung'));
+        reject(new Error('Pathfinding timed out'));
       }, timeoutMs);
     });
     try {
@@ -458,8 +580,8 @@ class BotWorker {
   // ------------------------------------------------------------ Aufgabenprofile
 
   startProfile(profile, options = {}) {
-    if (!this.bot || !this.spawned) throw new Error(`${this.name} ist nicht bereit`);
-    if (!['afk', 'fishing', 'trading'].includes(profile)) throw new Error('Unbekanntes Aufgabenprofil');
+    if (!this.bot || !this.spawned) throw new Error(`${this.name} is not ready`);
+    if (!['afk', 'fishing', 'trading'].includes(profile)) throw new Error('Unknown task profile');
     this.cancelJob();
     this.profile = profile;
     this.profileOptions = { ...options };
@@ -470,7 +592,7 @@ class BotWorker {
       await prev.catch(() => {});
       if (token.cancelled || !this.alive(token)) return;
       if (profile === 'afk') {
-        this.setStatus('idle', 'AFK/Präsenz aktiv');
+        this.setStatus('idle', 'AFK / presence active');
         // Keep controls released and periodically verify that the connection is alive.
         let lastLook = Date.now();
         while (this.alive(token)) {
@@ -490,11 +612,11 @@ class BotWorker {
           deposit: options.deposit !== undefined ? !!options.deposit : this.m.settings.fishingDeposit !== false,
         };
         const findRods = () => bot.inventory.items().filter((it) => it.name === 'fishing_rod' && (remaining(it) === null || remaining(it) > 0));
-        if (!findRods().length) return this.fail('Keine Angel im Inventar');
-        this.setStatus('fishing', 'Angeln aktiv · Stop beendet die Aufgabe');
+        if (!findRods().length) return this.fail('No fishing rod in the inventory');
+        this.setStatus('fishing', 'Fishing active · Stop ends the task');
         while (this.alive(token) && !token.cancelled) {
           let rods = findRods();
-          if (!rods.length) return this.fail('Keine einsatzfähige Angel mehr im Inventar');
+          if (!rods.length) return this.fail('No usable fishing rod left in the inventory');
           let rod = rods.find((it) => (remaining(it) ?? 999999) > fishOptions.threshold) || rods.sort((a,b) => (remaining(b) ?? 999999) - (remaining(a) ?? 999999))[0];
           const left = remaining(rod);
           if (left !== null && left <= fishOptions.threshold) {
@@ -505,37 +627,37 @@ class BotWorker {
               const updated = rods.find((it) => it.slot === rod.slot) || rod;
               if (!repaired || (remaining(updated) !== null && remaining(updated) <= fishOptions.threshold)) {
                 const spare = rods.find((it) => it.slot !== rod.slot && (remaining(it) === null || remaining(it) > fishOptions.threshold));
-                if (!spare) return this.fail('Angel unter Grenzwert; Reparatur ohne Erfolg und keine Ersatzangel vorhanden');
+                if (!spare) return this.fail('Rod is below the threshold; repair failed and no spare rod is available');
                 rod = spare;
               } else rod = updated;
             } else {
               const spare = rods.find((it) => it.slot !== rod.slot && (remaining(it) === null || remaining(it) > fishOptions.threshold));
-              if (!spare) return this.fail('Angel ohne Mending unter Grenzwert; keine Ersatzangel vorhanden');
+              if (!spare) return this.fail('Rod without Mending is below the threshold; no spare rod is available');
               rod = spare;
-              this.m.log(this.name, 'Wechsle auf Ersatzangel (Mending fehlt oder ist deaktiviert)', 'info');
+              this.m.log(this.name, 'Switching to a spare rod (Mending missing or disabled)', 'info');
             }
           }
           if (fishOptions.deposit && bot.inventory.emptySlotCount() <= this.m.settings.minFreeSlots) {
-            if (!this.m.settings.chest) return this.fail('Inventar fast voll: zum Einlagern bitte Lagerkiste in den Einstellungen setzen');
+            if (!this.m.settings.chest) return this.fail('Inventory almost full: set a storage chest in the settings to deposit items');
             if (!(await this.dropoff(token))) return;
             if (!this.alive(token) || token.cancelled) return;
           }
           try {
             await bot.equip(rod, 'hand');
-            this.setStatus('fishing', `Angelt · Angel ${remaining(rod) ?? '∞'} Haltbarkeit`);
+            this.setStatus('fishing', `Fishing · rod durability ${remaining(rod) ?? '∞'}`);
             await bot.fish();
             this.stats.fishCaught = (this.stats.fishCaught || 0) + 1;
             this.m.touch();
           } catch (e) {
-            if (!token.cancelled) { this.m.log(this.name, `Angeln: ${e.message}`, 'warn'); await sleep(2500); }
+            if (!token.cancelled) { this.m.log(this.name, `Fishing: ${e.message}`, 'warn'); await sleep(2500); }
           }
           await sleep(400);
         }
       } else if (profile === 'trading') {
         const bot = this.bot;
         const villagers = Object.values(bot.entities).filter((e) => e && e.name === 'villager' && e.position && e.position.distanceTo(bot.entity.position) < 5);
-        if (!villagers.length) return this.fail('Kein Dorfbewohner in 5 Blöcken Nähe gefunden');
-        this.setStatus('trading', 'Dorfbewohner gefunden – Handelsfenster wird geöffnet');
+        if (!villagers.length) return this.fail('No villager found within 5 blocks');
+        this.setStatus('trading', 'Villager found – opening the trade window');
         try {
           await bot.lookAt(villagers[0].position.offset(0, 1, 0), true);
           const window = await bot.openVillager(villagers[0]);
@@ -548,16 +670,16 @@ class BotWorker {
               const output = t && (t.outputItem || t.output || t.result);
               return output && String(output.name || '').toLowerCase().replace(/^minecraft:/, '').includes(wanted);
             });
-            if (tradeIndex < 0) throw new Error(`Kein Angebot gefunden, das als Ergebnis [0m"${wanted}" enthält. Angebote: ${offers.map((t, i) => `${i + 1}: ${(t.outputItem && t.outputItem.name) || 'unbekannt'}`).join(', ') || 'keine'}`);
+            if (tradeIndex < 0) throw new Error(`No offer found with the result "${wanted}". Offers: ${offers.map((t, i) => `${i + 1}: ${(t.outputItem && t.outputItem.name) || 'unknown'}`).join(', ') || 'none'}`);
           }
           if (tradeIndex >= 0) {
-            if (tradeIndex >= offers.length) throw new Error(`Angebot ${tradeIndex + 1} existiert nicht; gefunden: ${offers.length}`);
+            if (tradeIndex >= offers.length) throw new Error(`Offer ${tradeIndex + 1} does not exist; found: ${offers.length}`);
             const offer = offers[tradeIndex];
             const maxUses = Number(offer && (offer.maximumNbTradeUses ?? offer.maxUses ?? offer.maximumUses));
             const used = Number(offer && (offer.nbTradeUses ?? offer.uses ?? offer.tradeUses)) || 0;
             const available = Number.isFinite(maxUses) && maxUses > 0 ? Math.max(0, maxUses - used) : tradeCount;
             const runs = Math.min(tradeCount, available || (Number.isFinite(maxUses) && maxUses > 0 ? 0 : tradeCount));
-            if (runs <= 0 || offer.tradeDisabled || offer.disabled) throw new Error('Dieses Handelsangebot ist derzeit ausverkauft/deaktiviert');
+            if (runs <= 0 || offer.tradeDisabled || offer.disabled) throw new Error('This trade offer is currently sold out or disabled');
             let completed = 0;
             for (; completed < runs && this.alive(token) && !token.cancelled; completed++) {
               await window.trade(tradeIndex, 1);
@@ -565,17 +687,17 @@ class BotWorker {
               this.m.touch();
               await sleep(250);
             }
-            this.m.log(this.name, `Automatischer Handel beendet: Angebot ${tradeIndex + 1}, ${completed} Trade(s)`, 'info');
-            this.setStatus('trading', `Handel: ${completed}/${runs} ausgeführt`);
+            this.m.log(this.name, `Automatic trading finished: offer ${tradeIndex + 1}, ${completed} trade(s)`, 'info');
+            this.setStatus('trading', `Trading: ${completed}/${runs} completed`);
             try { window.close(); } catch { /* egal */ }
           } else {
-            const summary = offers.map((t, i) => `${i + 1}: ${(t.outputItem && t.outputItem.name) || 'unbekannt'}`).join(' | ');
-            this.m.log(this.name, `Handelsangebote: ${summary || 'keine Angebote'}. Gib im Dashboard eine Angebotsnummer oder einen Ergebnis-Itemnamen an.`, 'info');
-            this.setStatus('trading', `Handelsfenster offen (${offers.length} Angebote)`);
+            const summary = offers.map((t, i) => `${i + 1}: ${(t.outputItem && t.outputItem.name) || 'unknown'}`).join(' | ');
+            this.m.log(this.name, `Trade offers: ${summary || 'no offers'}. Enter an offer number or a result item name in the dashboard.`, 'info');
+            this.setStatus('trading', `Trade window open (${offers.length} offers)`);
           }
-        } catch (e) { return this.fail(`Handel konnte nicht geöffnet werden: ${e.message}`); }
+        } catch (e) { return this.fail(`Could not open trading: ${e.message}`); }
       }
-    })().catch((e) => { if (!token.cancelled) this.fail(`Aufgabe: ${e.message}`); });
+    })().catch((e) => { if (!token.cancelled) this.fail(`Task: ${e.message}`); });
   }
 
   stopProfile() { this.profile = 'idle'; this.profileOptions = {}; this.stopJob(); }
@@ -585,10 +707,10 @@ class BotWorker {
     const before = remaining(rod);
     const bottles = () => bot.inventory.items().find((it) => it.name === 'experience_bottle');
     if (!bottles()) {
-      this.m.log(this.name, 'Angel hat Mending, aber keine XP-Flaschen im Inventar', 'warn');
+      this.m.log(this.name, 'Rod has Mending but there are no XP bottles in the inventory', 'warn');
       return false;
     }
-    this.setStatus('repairing', `Angel reparieren · ${before} Haltbarkeit`);
+    this.setStatus('repairing', `Repairing rod · durability ${before}`);
     try { await bot.equip(rod, 'hand'); } catch { return false; }
     let last = before;
     let noProgress = 0;
@@ -606,9 +728,9 @@ class BotWorker {
         const now = current && current.name === 'fishing_rod' ? remaining(current) : null;
         if (now !== null && now > last) { last = now; noProgress = 0; }
         else noProgress++;
-        if (now !== null && now > threshold) { await bot.equip(current, 'hand'); this.setStatus('fishing', 'Angel repariert'); return true; }
+        if (now !== null && now > threshold) { await bot.equip(current, 'hand'); this.setStatus('fishing', 'Rod repaired'); return true; }
         if (noProgress >= 3) break;
-      } catch (e) { this.m.log(this.name, `Angel-Reparatur: ${e.message}`, 'warn'); break; }
+      } catch (e) { this.m.log(this.name, `Rod repair: ${e.message}`, 'warn'); break; }
     }
     const updated = bot.inventory.items().find((it) => it.name === 'fishing_rod' && it.slot === rod.slot);
     if (updated) { try { await bot.equip(updated, 'hand'); } catch { /* next task reports */ } }
@@ -620,7 +742,7 @@ class BotWorker {
   async runJob(token) {
     const bot = this.bot;
     const s = this.m.settings;
-    this.setStatus('mining', 'Starte...');
+    this.setStatus('mining', 'Starting...');
     let sinceCollect = 0;
 
     while (this.alive(token)) {
@@ -628,7 +750,7 @@ class BotWorker {
       if (!this.alive(token)) return;
 
       if (bot.inventory.emptySlotCount() <= s.minFreeSlots) {
-        if (!s.chest) return this.fail('Inventar voll - bitte Kiste in den Einstellungen setzen');
+        if (!s.chest) return this.fail('Inventory full - set a chest in the settings');
         if (!(await this.dropoff(token))) return;
         if (!this.alive(token)) return;
       }
@@ -637,10 +759,10 @@ class BotWorker {
       if (!target) {
         await this.collectDrops(token).catch(() => {});
         if (this.stats.mined === 0 && this.skip.size > 0) {
-          return this.fail(`${this.skip.size} Bloecke nicht erreichbar - liegt der Bereich unter einer Schicht? Dann "Tunnel graben" aktivieren`);
+          return this.fail(`${this.skip.size} blocks are unreachable - is the area under a layer? Then enable "Allow digging outside the area"`);
         }
-        this.setStatus('done', 'Abschnitt fertig');
-        this.m.log(this.name, 'Abschnitt fertig', 'info');
+        this.setStatus('done', 'Section finished');
+        this.m.log(this.name, 'Section finished', 'info');
         this.m.workerFinished();
         return;
       }
@@ -818,7 +940,7 @@ class BotWorker {
   async equipPickaxe() {
     const bot = this.bot;
     const best = this.findPickaxe();
-    if (!best) throw new Error('Keine Spitzhacke');
+    if (!best) throw new Error('No pickaxe');
     const held = bot.heldItem;
     if (held && held.slot === best.slot) return;
     await bot.equip(best, 'hand');
@@ -826,7 +948,7 @@ class BotWorker {
 
   async maintainTool(token) {
     const pick = this.findPickaxe();
-    if (!pick) return this.fail('Keine Spitzhacke im Inventar');
+    if (!pick) return this.fail('No pickaxe in the inventory');
     const left = remaining(pick);
     if (left !== null) {
       // Bei kleinen Spitzhacken (Holz, Gold) wuerde 300 nie erreicht werden -> max. die Haelfte
@@ -841,7 +963,7 @@ class BotWorker {
     const bot = this.bot;
     const s = this.m.settings;
     try { bot.pathfinder.stop(); } catch { /* egal */ }
-    this.setStatus('repairing', 'Repariere Spitzhacke');
+    this.setStatus('repairing', 'Repairing pickaxe');
 
     let lastUsed = null;
     let noProgress = 0;
@@ -852,15 +974,15 @@ class BotWorker {
       let held = bot.heldItem;
       if (!held || !/_pickaxe$/.test(held.name)) {
         const pick = this.findPickaxe();
-        if (!pick) return this.fail('Keine Spitzhacke im Inventar');
-        if (++setupTries > 5) return this.fail('Spitzhacke konnte nicht in die Hand genommen werden');
+        if (!pick) return this.fail('No pickaxe in the inventory');
+        if (++setupTries > 5) return this.fail('Could not equip the pickaxe');
         await bot.equip(pick, 'hand');
         await sleep(200);
         continue;
       }
       const used = held.durabilityUsed || 0;
       if (used === 0) break; // wieder voll
-      this.setStatus('repairing', `Spitzhacke ${remaining(held)}/${held.maxDurability}`);
+      this.setStatus('repairing', `Pickaxe ${remaining(held)}/${held.maxDurability}`);
 
       // 2. XP-Flasche in der Nebenhand (aus Hotbar oder Inventar)
       const off = bot.inventory.slots[OFFHAND_SLOT];
@@ -871,8 +993,8 @@ class BotWorker {
           if (!this.alive(token)) return false;
           bottle = this.findBottle();
         }
-        if (!bottle) return this.fail(`Keine XP-Flaschen mehr - Spitzhacke hat nur noch ${remaining(held)} Haltbarkeit`);
-        if (++setupTries > 5) return this.fail('XP-Flasche konnte nicht in die Nebenhand gelegt werden');
+        if (!bottle) return this.fail(`No XP bottles left - the pickaxe only has ${remaining(held)} durability left`);
+        if (++setupTries > 5) return this.fail('Could not move an XP bottle to the offhand');
         await bot.equip(bottle, 'off-hand');
         await sleep(200);
         continue;
@@ -888,7 +1010,7 @@ class BotWorker {
       const now = (bot.heldItem && bot.heldItem.durabilityUsed) || 0;
       if (lastUsed !== null && now >= lastUsed) {
         if (++noProgress >= 8) {
-          return this.fail('Reparatur ohne Fortschritt - hat die Spitzhacke Mending?');
+          return this.fail('Repair is not progressing - does the pickaxe have Mending?');
         }
       } else {
         noProgress = 0;
@@ -899,8 +1021,8 @@ class BotWorker {
     if (!this.alive(token)) return false;
     await sleep(300);
     try { await this.equipPickaxe(); } catch (e) { return this.fail(e.message); }
-    this.m.log(this.name, 'Spitzhacke repariert', 'info');
-    this.setStatus(this.profile === 'fishing' ? 'fishing' : 'mining', this.profile === 'fishing' ? 'Zurück zum Angeln' : 'Weiter mit Abbau');
+    this.m.log(this.name, 'Pickaxe repaired', 'info');
+    this.setStatus(this.profile === 'fishing' ? 'fishing' : 'mining', this.profile === 'fishing' ? 'Back to fishing' : 'Back to mining');
     return true;
   }
 
@@ -917,7 +1039,7 @@ class BotWorker {
     const c = this.m.settings.chest;
     await this.goto(new goals.GoalNear(c.x, c.y, c.z, 3), token, 60000);
     const block = this.chestBlock();
-    if (!block) throw new Error(`An ${c.x} ${c.y} ${c.z} ist keine Kiste`);
+    if (!block) throw new Error(`There is no chest at ${c.x} ${c.y} ${c.z}`);
     return this.bot.openContainer(block);
   }
 
@@ -930,7 +1052,7 @@ class BotWorker {
   async dropoff(token) {
     const bot = this.bot;
     const s = this.m.settings;
-    this.setStatus('depositing', 'Bringe Items zur Kiste');
+    this.setStatus('depositing', 'Taking items to the chest');
     let container;
     try {
       container = await this.openChest(token);
@@ -940,18 +1062,18 @@ class BotWorker {
       }
     } catch (e) {
       if (!this.alive(token)) return false;
-      return this.fail(`Kiste: ${e.message}`);
+      return this.fail(`Chest: ${e.message}`);
     } finally {
       if (container) { try { container.close(); } catch { /* egal */ } }
     }
-    if (bot.inventory.emptySlotCount() <= s.minFreeSlots) return this.fail('Kiste voll oder nichts abzulegen');
-    this.setStatus(this.profile === 'fishing' ? 'fishing' : 'mining', this.profile === 'fishing' ? 'Zurück zum Angeln' : 'Weiter mit Abbau');
+    if (bot.inventory.emptySlotCount() <= s.minFreeSlots) return this.fail('Chest is full or there is nothing to deposit');
+    this.setStatus(this.profile === 'fishing' ? 'fishing' : 'mining', this.profile === 'fishing' ? 'Back to fishing' : 'Back to mining');
     return true;
   }
 
   async fetchBottles(token) {
     const bot = this.bot;
-    this.setStatus('repairing', 'Hole XP-Flaschen aus Kiste');
+    this.setStatus('repairing', 'Fetching XP bottles from the chest');
     let container;
     try {
       container = await this.openChest(token);
@@ -963,7 +1085,7 @@ class BotWorker {
         try { await container.withdraw(item.type, null, n); need -= n; } catch { break; }
       }
     } catch (e) {
-      if (this.alive(token)) this.m.log(this.name, `Kiste: ${e.message}`, 'warn');
+      if (this.alive(token)) this.m.log(this.name, `Chest: ${e.message}`, 'warn');
     } finally {
       if (container) { try { container.close(); } catch { /* egal */ } }
     }
@@ -973,9 +1095,9 @@ class BotWorker {
 
   chat(text) {
     const message = String(text || '').trim();
-    if (!message) throw new Error('Leere Nachricht');
-    if (message.length > 256) throw new Error('Maximal 256 Zeichen');
-    if (/[\r\n\u0000]/.test(message)) throw new Error('Nur eine Chat-Zeile pro Nachricht erlaubt');
+    if (!message) throw new Error('Empty message');
+    if (message.length > 256) throw new Error('At most 256 characters');
+    if (/[\r\n\u0000]/.test(message)) throw new Error('Only one chat line per message is allowed');
     // A queued command belongs to this connection, never to a later login.
     const bot = this.bot;
     const isReady = () => bot && this.bot === bot && this.spawned && bot.entity && bot._client.state === 'play';
@@ -984,12 +1106,12 @@ class BotWorker {
     // Some servers silently discard rapid messages/commands as anti-spam.
     const task = this.chatQueue.catch(() => {}).then(async () => {
       if (!isReady()) {
-        throw new Error(`${this.accountName || this.name} ist nicht verbunden oder noch nicht gespawnt`);
+        throw new Error(`${this.accountName || this.name} is not connected or has not spawned yet`);
       }
       const waitMs = Math.max(0, 1500 - (Date.now() - this.lastChatAt));
       if (waitMs) await sleep(waitMs);
       if (!isReady()) {
-        throw new Error(`${this.accountName || this.name} wurde vor dem Senden getrennt`);
+        throw new Error(`${this.accountName || this.name} was disconnected before sending`);
       }
       let cancelEcho;
       try {
@@ -1001,10 +1123,10 @@ class BotWorker {
         if (!isCommand) cancelEcho = this.watchChatEcho(bot, message);
         bot.chat(message);
         this.lastChatAt = Date.now();
-        this.m.log(this.name, `Chat-Sendeaufruf ausgeführt (${isCommand ? 'Befehl' : 'Chat'}, ${signed ? 'signiert' : 'UNSIGNIERT'}): ${message}`, 'chat');
+        this.m.log(this.name, `Sent ${isCommand ? 'command' : 'chat message'} (${signed ? 'signed' : 'UNSIGNED'}): ${message}`, 'chat');
       } catch (e) {
         if (cancelEcho) cancelEcho();
-        this.m.log(this.name, `Chat-Senden fehlgeschlagen: ${e && e.stack ? e.stack : e}`, 'error');
+        this.m.log(this.name, `Failed to send chat: ${e && e.stack ? e.stack : e}`, 'error');
         throw e;
       }
     });
@@ -1025,11 +1147,11 @@ class BotWorker {
     const onMessage = (text) => {
       if (!String(text || '').toLowerCase().includes(needle)) return;
       cleanup();
-      this.m.log(this.name, 'Server hat die Chat-Nachricht zurückgespielt (angekommen)', 'info');
+      this.m.log(this.name, 'Server echoed the chat message (delivered)', 'info');
     };
     timer = setTimeout(() => {
       cleanup();
-      this.m.log(this.name, 'Kein Chat-Echo innerhalb von 5 s. Das allein bestätigt weder Zustellung noch Blockierung; Servermeldungen im Log prüfen.', 'warn');
+      this.m.log(this.name, 'No chat echo within 5 s. This alone neither confirms delivery nor blocking; check the server messages in the log.', 'warn');
     }, 5000);
     bot.on('messagestr', onMessage);
     bot.once('end', cleanup);
@@ -1057,6 +1179,7 @@ class BotWorker {
       msa: this.m.msa.get(this.name) || null,
       pos: null, health: null, food: null, pickaxe: null, bottles: null, freeSlots: null, inventory: [],
       death: publicDeathSettings(this.deathSettings()),
+      reconnect: publicReconnectSettings(this.reconnectSettings()),
       sneak: this.wantSneak(),
     };
     if (ready) {
@@ -1069,7 +1192,19 @@ class BotWorker {
         if (pick) snap.pickaxe = { name: pick.name, left: remaining(pick), max: pick.maxDurability || null };
         snap.bottles = this.bottleCount();
         snap.freeSlots = bot.inventory.emptySlotCount();
-        snap.inventory = bot.inventory.items().map((it) => ({ name: it.name, count: it.count, slot: it.slot, durabilityLeft: remaining(it), maxDurability: it.maxDurability || null, mending: hasMending(it) }));
+        snap.inventory = bot.inventory.items()
+          .filter((it) => it.slot >= FIRST_ITEM_SLOT && it.slot <= OFFHAND_SLOT)
+          .map((it) => ({
+            name: it.name,
+            displayName: it.displayName || null,
+            count: it.count,
+            stackSize: it.stackSize || 64,
+            slot: it.slot,
+            durabilityLeft: remaining(it),
+            maxDurability: it.maxDurability || null,
+            mending: hasMending(it),
+            enchanted: hasEnchants(it),
+          }));
       } catch { /* Inventar noch nicht bereit */ }
     }
     return snap;
