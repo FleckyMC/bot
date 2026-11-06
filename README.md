@@ -53,13 +53,27 @@ The bot runs inside the dashboard (discord.js). Setup:
 
 Features: welcome/leave messages with placeholders, autorole, reaction roles, role toggle buttons, ticket panel (dropdown, categories, per-member limit, only chosen roles can close, channels named `ticket-from-<name>`), purchase panel (payment methods, durations and prices, discounts, order ticket with current total, *Complete purchase* / *Cancel purchase* / *Set discount* for admins), star rating + feedback after a completed purchase (separate channels), `/kick`, `/ban`, `/unban`, `/purchases`. Completed purchases appear in the **Purchases** tab (members see their own via their linked Discord account, admins see all).
 
+## Configuration (`.env`)
+
+```
+FOUNDER_USER=founder
+FOUNDER_PASSWORD=a-long-unique-password
+ADMIN_ACCOUNTS=name:password,name2:password2   # optional
+PORT=3000
+HOST=127.0.0.1
+MC_VERSION=auto
+COOKIE_SECURE=true
+```
+
+Never commit your real `.env`.
+
 ## Install on a VPS (Ubuntu/Debian)
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt install -y nodejs
 npm install
-cp .env.example .env && nano .env      # set FOUNDER_USER / FOUNDER_PASSWORD (+ optional ADMIN_ACCOUNTS)
+nano .env      # create it with the variables below
 npm start
 ```
 
