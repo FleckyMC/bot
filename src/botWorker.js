@@ -320,6 +320,22 @@ class BotWorker {
     return total;
   }
 
+  // Moves (or swaps) a stack between two inventory slots, like picking it up and placing it in the inventory screen.
+  async moveItem({ from, to, name }) {
+    const bot = this.bot;
+    if (!bot || !this.spawned) throw new Error('This bot is not connected');
+    if (this.dropBusy) throw new Error('This bot is busy with another inventory action');
+    const a = Number(from), b = Number(to);
+    for (const s of [a, b]) if (!Number.isInteger(s) || s < FIRST_ITEM_SLOT || s > OFFHAND_SLOT) throw new Error('Invalid inventory slot');
+    if (a === b) throw new Error('Pick a different slot to move the item to');
+    const item = bot.inventory.slots[a];
+    if (!item) throw new Error(`Slot ${a} is empty - the inventory changed, please try again`);
+    if (name && String(name) !== item.name) throw new Error(`Slot ${a} no longer contains ${name}`);
+    this.dropBusy = true;
+    try { await bot.moveSlotItem(a, b); } finally { this.dropBusy = false; }
+    this.m.touch();
+  }
+
   // Throws items out of one inventory slot using the "drop" click (like pressing Q / Ctrl+Q over the slot).
   async dropSlot(bot, { slot, name, count }) {
     const item = bot.inventory.slots[slot];

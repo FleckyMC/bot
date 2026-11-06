@@ -62,6 +62,8 @@ const discordBot = createDiscordBot({
     const who = info.by ? botIdentity(info.by) : null;
     if (type === 'purchase_completed') audit.add({ type, actor: { username: info.completedByName || 'team', role: 'bot' }, detail: `${info.username} bought ${info.planLabel} (${info.currency || ''}${info.total})` });
     else if (type === 'purchase_cancelled') audit.add({ type, detail: `${info.username}: ${info.planLabel}` });
+    else if (type === 'purchase_claimed') audit.add({ type, actor: { username: info.claimedByName || 'seller', role: 'bot' }, detail: `${info.username}'s order (${info.planLabel})` });
+    else if (type === 'purchase_unclaimed') audit.add({ type, actor: botIdentity(info.by), detail: `${info.username}'s order (${info.planLabel})` });
     else if (type === 'purchase_rated') audit.add({ type, detail: `${info.username} rated ${info.rating}/5` });
     else audit.add({ type: 'bot_' + type, actor: who, detail: `${info.targetName || info.target || ''} – ${info.reason || ''}` });
   },
@@ -307,21 +309,54 @@ app.post('/api/founder/bot/stop', founderOnly, async (req, res) => {
   catch (e) { fail(res, e); }
 });
 
-// Purchases: everyone sees their own completed purchases (matched by the linked Discord account), staff see all of them.
+// Purchases: everyone sees the completed purchases they made or sold (matched by their linked Discord account), staff see all of them.
+const purchaseRow = (p, staff, byDiscord) => ({
+  id: p.id, userId: p.userId, discordName: p.username, account: staff ? (byDiscord.get(p.userId) || null) : null,
+  sellerId: p.sellerId || null, sellerName: p.sellerName || null, sellerAccount: staff && p.sellerId ? (byDiscord.get(p.sellerId) || null) : null,
+  plan: p.planLabel, days: p.days, method: p.methodLabel, basePrice: p.basePrice, discountPercent: p.discountPercent, total: p.total,
+  currency: p.currency || botConfig.get().shop.currency, completedAt: p.completedAt, rating: p.rating || 0, feedback: p.feedback || '',
+});
 app.get('/api/purchases', anyUser, (req, res) => {
   const staff = perms.isStaff(req.actor);
   const all = botData.purchases();
-  const mine = staff ? all : all.filter((p) => req.actor.discord && p.userId === req.actor.discord.id);
+  const me = req.actor.discord && req.actor.discord.id;
+  const mine = staff ? all : all.filter((p) => me && (p.userId === me || p.sellerId === me));
   const done = mine.filter((p) => p.status === 'completed').sort((a, b) => b.completedAt - a.completedAt);
   const byDiscord = new Map(auth.getUsers().filter((u) => u.discord).map((u) => [u.discord.id, u.username]));
-  const rows = done.map((p) => ({ id: p.id, userId: p.userId, discordName: p.username, account: staff ? (byDiscord.get(p.userId) || null) : null, plan: p.planLabel, days: p.days, method: p.methodLabel, basePrice: p.basePrice, discountPercent: p.discountPercent, total: p.total, currency: p.currency || botConfig.get().shop.currency, completedAt: p.completedAt, rating: p.rating || 0, feedback: staff ? p.feedback || '' : p.feedback || '' }));
+  const rows = done.map((p) => purchaseRow(p, staff, byDiscord));
   const rated = rows.filter((r) => r.rating);
   const revenue = {};
   for (const r of rows) revenue[r.currency] = Math.round(((revenue[r.currency] || 0) + r.total) * 100) / 100;
+  const sellers = new Map();
+  for (const r of rows) {
+    const key = r.sellerId || 'none';
+    const s = sellers.get(key) || { id: r.sellerId, name: r.sellerName || 'Unknown', count: 0, revenue: {}, ratings: [] };
+    s.count++; s.revenue[r.currency] = Math.round(((s.revenue[r.currency] || 0) + r.total) * 100) / 100; if (r.rating) s.ratings.push(r.rating);
+    sellers.set(key, s);
+  }
   res.json({
-    scope: staff ? 'all' : 'own', linked: staff || !!req.actor.discord, rows,
+    scope: staff ? 'all' : 'own', linked: staff || !!req.actor.discord, canDelete: perms.isFounder(req.actor), rows,
+    sellers: [...sellers.values()].map((s) => ({ id: s.id, name: s.name, count: s.count, revenue: s.revenue, avgRating: s.ratings.length ? Math.round(s.ratings.reduce((a, b) => a + b, 0) / s.ratings.length * 10) / 10 : null })).sort((a, b) => b.count - a.count),
     summary: { count: rows.length, revenue, avgRating: rated.length ? Math.round(rated.reduce((a, r) => a + r.rating, 0) / rated.length * 10) / 10 : null, open: staff ? all.filter((p) => p.status === 'open').length : undefined, cancelled: staff ? all.filter((p) => p.status === 'cancelled').length : undefined },
   });
+});
+// Only the founder can remove entries from the history or wipe the logs.
+app.delete('/api/purchases/:id', founderOnly, (req, res) => {
+  try {
+    if (!botData.deletePurchase(String(req.params.id))) return fail(res, new Error('Purchase not found.'), 404);
+    audit.add({ type: 'purchase_deleted', actor: req.actor, detail: `Purchase ${String(req.params.id).slice(0, 12)} removed from the history` });
+    res.json({ ok: true });
+  } catch (e) { fail(res, e); }
+});
+app.post('/api/purchases/clear', founderOnly, (req, res) => {
+  const n = botData.clearPurchases();
+  audit.add({ type: 'purchase_deleted', actor: req.actor, detail: `Purchase history cleared (${n} entr${n === 1 ? 'y' : 'ies'})` });
+  res.json({ ok: true, removed: n });
+});
+app.post('/api/admin/audit/clear', founderOnly, (req, res) => {
+  const n = audit.clear();
+  audit.add({ type: 'audit_cleared', actor: req.actor, detail: `Activity log cleared (${n} entr${n === 1 ? 'y' : 'ies'} removed)` });
+  res.json({ ok: true, removed: n });
 });
 
 app.post('/api/password', json, anyUser, (req, res) => {
@@ -394,6 +429,7 @@ const actions = {
   set_bot_death: (p) => manager.setBotDeathSettings(p && p.name, p && p.death),
   set_bot_reconnect: (p) => manager.setBotReconnectSettings(p && p.name, p && p.reconnect),
   drop_items: (p) => manager.dropItems(p && p.name, p && p.items),
+  move_item: (p) => manager.moveItem(p && p.name, p && p.from, p && p.to, p && p.item),
   drop_all: (p) => manager.dropAll(p && p.name, p || {}),
   test_death_webhook: (p) => manager.testDeathWebhook(p && p.name),
   clear_logs: () => { manager.logs.length = 0; for (const client of io.sockets.sockets.values()) client.emit('logs_cleared'); },

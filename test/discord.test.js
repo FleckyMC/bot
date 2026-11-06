@@ -89,7 +89,8 @@ function world() {
   let n = 0;
   const makeChannel = (id, extra = {}) => {
     const msgs = new Map();
-    const ch = { id, sent: [], deleted: false, isTextBased: () => true, ...extra,
+    const ch = { id, sent: [], deleted: false, access: new Map(), isTextBased: () => true, ...extra,
+      permissionOverwrites: { edit: async (uid, perms) => { ch.access.set(uid, perms); }, delete: async (uid) => { ch.access.delete(uid); } },
       messages: { fetch: async (mid) => msgs.get(mid) || null },
       send: async (payload) => { const m = { id: 'm' + (++n), payload, edits: [], edit: async (p) => { m.edits.push(p); return m; } }; msgs.set(m.id, m); ch.sent.push(payload); return m; },
       delete: async () => { ch.deleted = true; channels.delete(id); } };
@@ -107,7 +108,7 @@ function world() {
   const member = (id, roles = []) => ({ id, guild, roles: { cache: new Set(roles) } });
   const base = (user, roles, channel, extra = {}) => ({
     guildId: ID.guild, guild, user, member: member(user.id, roles), channel, channelId: channel ? channel.id : null, replies: [], updates: [],
-    reply(p) { this.replies.push(p); return Promise.resolve(); }, update(p) { this.updates.push(p); return Promise.resolve(); }, deferReply() { return Promise.resolve(); }, editReply(p) { this.replies.push(p); return Promise.resolve(); }, followUp(p) { this.replies.push(p); return Promise.resolve(); },
+    reply(p) { this.replies.push(p); return Promise.resolve(); }, update(p) { this.updates.push(p); return Promise.resolve(); }, deferReply() { return Promise.resolve(); }, deferUpdate() { this.deferred = true; return Promise.resolve(); }, editReply(p) { this.replies.push(p); return Promise.resolve(); }, followUp(p) { this.replies.push(p); return Promise.resolve(); },
     showModal(m) { this.modal = m; return Promise.resolve(); }, isChatInputCommand: () => false, isStringSelectMenu: () => false, isButton: () => false, isModalSubmit: () => false, ...extra });
   const select = (user, customId, values, roles = []) => base(user, roles, null, { customId, values, isStringSelectMenu: () => true, message: { edit: async () => {} } });
   const button = (user, customId, channel, roles = []) => base(user, roles, channel, { customId, isButton: () => true });
@@ -180,7 +181,7 @@ test('purchase flow: order → discount → complete → rating → close, and c
   assert.match(invalid.replies[0].content, /1 to 5/);
   const ok = w.modal(buyer, 'shop:ratemodal', channel, { stars: '4', feedback: 'Fast and friendly' });
   await w.handle(ok);
-  assert.equal(w.channels.get(ID.ratings).sent[0].content, `<@${ID.buyer}> bought something and left a rating of ⭐⭐⭐⭐ (4/5)`);
+  assert.equal(w.channels.get(ID.ratings).sent[0].content, `<@${ID.buyer}> bought something from <@${ID.staff}> and left a rating of ⭐⭐⭐⭐ (4/5)`);
   assert.deepEqual(w.channels.get(ID.ratings).sent[0].allowedMentions, { parse: [] });
   assert.match(JSON.stringify(w.channels.get(ID.feedback).sent[0].embeds[0].toJSON()), /Fast and friendly/);
   const second = w.modal(buyer, 'shop:ratemodal', channel, { stars: '5' });
@@ -386,4 +387,84 @@ test('posting a panel explains missing channel permissions', async () => {
   ch.permissionsFor = () => ({ has: () => true });
   ch.send = async () => { const e = new Error('Missing Permissions'); e.code = 50013; throw e; };
   await assert.rejects(() => w.bot.postPanel('tickets'), /may not post in #tickets/);
+});
+
+test('claim system: seller roles per payment method, claim/unclaim, access only for the claimer, seller in the rating', async () => {
+  const w = world();
+  const PP = '888888888888888881', PS = '888888888888888882', CAT = '777777777777777771', CLAIM_PP = '333333333333333330', CLAIM_ALL = '333333333333333331';
+  const S1 = { id: '666666666666666661', username: 'Sel1', tag: 'S1#0' }, S2 = { id: '666666666666666662', username: 'Sel2', tag: 'S2#0' }, PPS = { id: '666666666666666663', username: 'PayPalSeller', tag: 'P#0' };
+  for (const r of [PP, PS]) w.guild.roles.cache.set(r, {});
+  const mkc = (id, extra) => { const ch = { id, sent: [], access: new Map(), isTextBased: () => true, ...extra, messages: { fetch: async (mid) => ch.msgs.get(mid) || null }, msgs: new Map(),
+    send: async (p) => { const m = { id: 'n' + (ch.msgs.size + 1), payload: p, edits: [], edit: async (e) => { m.edits.push(e); return m; } }; ch.msgs.set(m.id, m); ch.sent.push(p); return m; } }; w.channels.set(id, ch); return ch; };
+  const claimPP = mkc(CLAIM_PP), claimAll = mkc(CLAIM_ALL); mkc(CAT, { type: D.ChannelType.GuildCategory });
+  w.config.replace({ shop: { claimChannelId: CLAIM_ALL, methods: [
+    { id: 'paypal', label: 'PayPal', roleId: PP, categoryId: CAT, claimChannelId: CLAIM_PP },
+    { id: 'paysafe', label: 'Paysafe', roleId: PS } ] } });
+  assert.equal(w.config.get().shop.methods[0].roleId, PP);
+
+  // buyer orders 5 weeks with Paysafe -> default claim channel, pings the Paysafe seller role, no admin access to the ticket
+  await w.handle(w.select(buyer, 'shop:pay:week:5', ['paysafe']));
+  let p = w.data.purchases()[0];
+  assert.equal(p.claimChannelId, CLAIM_ALL);
+  const ticket = w.channels.get(p.channelId);
+  assert.ok(!ticket.opts.permissionOverwrites.some((o) => o.id === ID.admin), 'admin roles are not added to seller tickets');
+  assert.ok(!ticket.opts.permissionOverwrites.some((o) => o.id === PS), 'the seller role is not added either');
+  const note = claimAll.sent[0];
+  assert.equal(note.content, `<@&${PS}> There's a new customer!`);
+  assert.deepEqual(note.allowedMentions, { roles: [PS] });
+  assert.match(JSON.stringify(note.embeds[0].toJSON()), /5 weeks/);
+  assert.equal(note.components[0].components[0].toJSON().label, 'Claim ticket');
+  const notifyId = p.notifyMessageId;
+  const click = (user, id, roles, ch) => { const i = w.button(user, id, ch || claimAll, roles); i.message = { id: notifyId }; return i; };
+
+  // wrong role, own order, then a valid claim
+  const wrong = click(PPS, 'shop:claim', [PP]); await w.handle(wrong);
+  assert.match(wrong.replies[0].content, /Only <@&888888888888888882> can claim/);
+  const own = click(buyer, 'shop:claim', [PS]); await w.handle(own);
+  assert.match(own.replies[0].content, /own order/);
+  const c1 = click(S1, 'shop:claim', [PS]); await w.handle(c1);
+  p = w.data.purchase(p.id);
+  assert.equal(p.claimedBy, S1.id);
+  assert.ok(ticket.access.has(S1.id), 'only the claimer is added to the ticket');
+  assert.equal(ticket.access.size, 1);
+  assert.equal(ticket.sent.at(-1).content, `Ticket claimed by <@${S1.id}>`);
+  const noteMsg = claimAll.msgs.get(notifyId);
+  assert.equal(noteMsg.edits.at(-1).components[0].components[0].toJSON().label, 'Unclaim ticket');
+
+  // nobody else can claim while it is claimed; nobody but the claimer may handle it
+  const c2 = click(S2, 'shop:claim', [PS]); await w.handle(c2);
+  assert.match(c2.replies[0].content, /already claimed by <@666666666666666661>/);
+  for (const [user, roles] of [[S2, [PS]], [staff, [ID.admin]], [buyer, []]]) {
+    const done = w.button(user, 'shop:complete', ticket, roles); await w.handle(done);
+    assert.match(done.replies[0].content, /Only the seller who claimed/);
+  }
+
+  // unclaim: access removed, message in the ticket, claimable again
+  const un2 = click(S2, 'shop:unclaim', [PS]); await w.handle(un2);
+  assert.match(un2.replies[0].content, /Only <@666666666666666661> can unclaim/);
+  const un = click(S1, 'shop:unclaim', [PS]); await w.handle(un);
+  assert.equal(ticket.access.size, 0);
+  assert.equal(ticket.sent.at(-1).content, `Ticket has been unclaimed by <@${S1.id}>`);
+  assert.equal(w.data.purchase(p.id).claimedBy, null);
+  assert.equal(noteMsg.edits.at(-1).components[0].components[0].toJSON().label, 'Claim ticket');
+  const early = w.button(S1, 'shop:complete', ticket, [PS]); await w.handle(early);
+  assert.match(early.replies[0].content, /Claim this ticket first/);
+
+  // another seller claims, completes, and the rating names the seller
+  await w.handle(click(S2, 'shop:claim', [PS]));
+  await w.handle(w.button(S2, 'shop:complete', ticket, [PS]));
+  p = w.data.purchase(p.id);
+  assert.equal(p.status, 'completed'); assert.equal(p.sellerId, S2.id);
+  assert.equal(noteMsg.edits.at(-1).components.length, 0);
+  await w.handle(w.modal(buyer, 'shop:ratemodal', ticket, { stars: '5', feedback: 'great' }));
+  assert.equal(w.channels.get(ID.ratings).sent[0].content, `<@${ID.buyer}> bought something from <@${S2.id}> and left a rating of ⭐⭐⭐⭐⭐ (5/5)`);
+  assert.match(JSON.stringify(w.channels.get(ID.feedback).sent[0].embeds[0].toJSON()), /Seller/);
+
+  // PayPal has its own claim channel and its own category
+  const buyer2 = { id: '555555555555555558', username: 'Zed', tag: 'Z#0' };
+  await w.handle(w.select(buyer2, 'shop:pay:week:1', ['paypal']));
+  const p2 = w.data.purchases()[1];
+  assert.equal(p2.claimChannelId, CLAIM_PP);
+  assert.equal(w.channels.get(p2.channelId).opts.parent, CAT);
+  assert.equal(claimPP.sent[0].content, `<@&${PP}> There's a new customer!`);
 });

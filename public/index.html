@@ -82,7 +82,7 @@
 
   <!-- ============ INVENTORY ============ -->
   <section class="view" id="view-inventory" role="tabpanel">
-    <div class="page-head"><div><p class="eyebrow">Inventory</p><h2>Bot inventory</h2><p>Click items to select them, then drop them on the ground.</p></div></div>
+    <div class="page-head"><div><p class="eyebrow">Inventory</p><h2>Bot inventory</h2><p>Move items between slots, or select items to drop them on the ground.</p></div></div>
     <div id="invPills" class="bot-pills" style="margin-bottom:16px"></div>
     <div id="invBody"></div>
   </section>
@@ -170,7 +170,7 @@
     </div>
     <div class="toolbar" style="margin:16px 0"><input id="accountSearch" class="compact" placeholder="Search username…" aria-label="Search accounts"><select id="accountRole" aria-label="Filter by role"><option value="all">All roles</option><option value="user">Users</option><option value="admin">Admins</option></select><span id="accountMessageAdmin" class="hint" role="status"></span></div>
     <div id="accountList" class="grid cols-2"></div>
-    <div class="panel" style="margin-top:16px"><div class="head"><div><p class="eyebrow">History</p><h3>Account activity</h3></div></div><div id="auditList" class="log" style="height:300px"></div></div>
+    <div class="panel" style="margin-top:16px"><div class="head"><div><p class="eyebrow">History</p><h3>Account activity</h3></div><span class="spacer"></span><button class="danger sm" id="clearAudit" type="button" data-realfounder hidden>Clear log for everyone</button></div><div id="auditList" class="log" style="height:300px"></div></div>
   </section>
 
   <!-- ============ DISCORD BOT (admin) ============ -->
@@ -181,8 +181,9 @@
 
   <!-- ============ PURCHASES ============ -->
   <section class="view" id="view-purchases" role="tabpanel">
-    <div class="page-head"><div><p class="eyebrow" id="purEyebrow">Your purchases</p><h2>Purchases</h2><p id="purLead">Completed purchases from the Discord shop.</p></div><span class="spacer"></span><button class="ghost" id="purRefresh" type="button">Refresh</button></div>
+    <div class="page-head"><div><p class="eyebrow" id="purEyebrow">Your purchases</p><h2>Purchases</h2><p id="purLead">Completed purchases from the Discord shop.</p></div><span class="spacer"></span><button class="danger" id="purClear" type="button" hidden>Clear history</button><button class="ghost" id="purRefresh" type="button">Refresh</button></div>
     <div id="purSummary" class="grid cols-4"></div>
+    <div id="purSellersBox" class="panel" style="margin-top:16px" hidden><div class="head"><div><p class="eyebrow">Sellers</p><h3>Sales by seller</h3></div></div><div class="table-wrap"><table class="table" id="purSellers"><thead></thead><tbody></tbody></table></div></div>
     <div class="panel" style="margin-top:16px"><div class="table-wrap"><table class="table" id="purTable"><thead></thead><tbody></tbody></table></div><div id="purEmpty" class="empty" hidden></div></div>
   </section>
 

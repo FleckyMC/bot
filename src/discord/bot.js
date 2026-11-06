@@ -81,13 +81,54 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
         { name: 'Price', value: `${cur}${money(p.basePrice)}`, inline: true },
         { name: 'Discount', value: p.discountPercent ? `${p.discountLabel} (-${p.discountPercent}%)` : 'None', inline: true },
         { name: 'Current total', value: `**${cur}${money(p.total)}**`, inline: true },
+        ...(p.claimChannelId || p.claimedBy ? [{ name: 'Seller', value: p.claimedBy ? `<@${p.claimedBy}>` : 'Waiting for a seller to claim this ticket', inline: true }] : []),
       ).setFooter({ text: `Order ${p.id} · ${state}` });
   }
 
-  const orderButtons = () => [new D.ActionRowBuilder().addComponents(
+  // ---- claiming: sellers (one role per payment method) claim orders from a notification channel
+  const methodOf = (p) => cfg().shop.methods.find((m) => m.id === p.methodId) || null;
+  const claimedBy = (p) => (p.claimedBy ? `<@${p.claimedBy}>` : null);
+  const canHandle = (member, p) => (p.claimChannelId ? !!p.claimedBy && p.claimedBy === member.id : isCloser(member));
+  const handleDenied = (p) => (p.claimChannelId ? (p.claimedBy ? `Only the seller who claimed this ticket (${claimedBy(p)}) can do that.` : 'Claim this ticket first.') : 'Only the configured team roles can do that.');
+
+  function notifyEmbed(p) {
+    const cur = p.currency || cfg().shop.currency;
+    const state = p.status === 'completed' ? '✅ Completed' : p.status === 'cancelled' ? '❌ Cancelled' : p.claimedBy ? `🔒 Claimed by ${p.claimedByName || 'a seller'}` : '🟡 Waiting for a seller';
+    return new D.EmbedBuilder().setTitle('New customer').setColor(p.status === 'completed' ? '#22c55e' : p.status === 'cancelled' ? '#ef4444' : p.claimedBy ? '#f59e0b' : cfg().shop.color)
+      .addFields(
+        { name: 'Buyer', value: `<@${p.userId}> (${p.username})`, inline: true },
+        { name: 'Payment method', value: p.methodLabel, inline: true },
+        { name: 'Duration', value: `${p.planLabel} (${p.days} days)`, inline: true },
+        { name: 'Total', value: `**${cur}${money(p.total)}**${p.discountPercent ? ` (-${p.discountPercent}%)` : ''}`, inline: true },
+        { name: 'Seller', value: p.claimedBy ? `<@${p.claimedBy}>` : '—', inline: true },
+      ).setFooter({ text: `Order ${p.id} · ${state}` });
+  }
+  const notifyButtons = (p) => (p.status !== 'open' ? [] : [new D.ActionRowBuilder().addComponents(p.claimedBy
+    ? new D.ButtonBuilder().setCustomId('shop:unclaim').setLabel('Unclaim ticket').setStyle(D.ButtonStyle.Secondary)
+    : new D.ButtonBuilder().setCustomId('shop:claim').setLabel('Claim ticket').setStyle(D.ButtonStyle.Success))]);
+
+  async function syncNotify(p) {
+    try {
+      const g = guild(); if (!g || !p.notifyChannelId || !p.notifyMessageId) return;
+      const ch = await g.channels.fetch(p.notifyChannelId).catch(() => null);
+      const msg = ch ? await ch.messages.fetch(p.notifyMessageId).catch(() => null) : null;
+      if (msg) await msg.edit({ embeds: [notifyEmbed(p)], components: notifyButtons(p) });
+    } catch (e) { log(`Could not update the claim message: ${e.message}`); }
+  }
+  async function syncOrder(p) {
+    try {
+      const g = guild(); if (!g || !p.messageId) return;
+      const ch = await g.channels.fetch(p.channelId).catch(() => null);
+      const msg = ch ? await ch.messages.fetch(p.messageId).catch(() => null) : null;
+      if (msg) await msg.edit({ embeds: [orderEmbed(p)], components: p.status === 'open' ? orderButtons(p) : [] });
+    } catch (e) { log(`Could not update the order message: ${e.message}`); }
+  }
+
+  const orderButtons = (p) => [new D.ActionRowBuilder().addComponents(
     new D.ButtonBuilder().setCustomId('shop:complete').setLabel('Complete purchase').setStyle(D.ButtonStyle.Success),
     new D.ButtonBuilder().setCustomId('shop:cancel').setLabel('Cancel purchase').setStyle(D.ButtonStyle.Danger),
     new D.ButtonBuilder().setCustomId('shop:discount').setLabel('Set discount').setStyle(D.ButtonStyle.Secondary),
+    ...(p && p.claimedBy ? [new D.ButtonBuilder().setCustomId('shop:unclaim').setLabel('Unclaim ticket').setStyle(D.ButtonStyle.Secondary)] : []),
   )];
 
   // ------------------------------------------------------------------ posting panels
@@ -173,9 +214,9 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
 
   // ------------------------------------------------------------------ tickets
 
-  async function createTicketChannel(g, user, parentId, extraNames) {
+  async function createTicketChannel(g, user, parentId, extraNames, { closers: withClosers = true } = {}) {
     const base = { allow: [D.PermissionFlagsBits.ViewChannel, D.PermissionFlagsBits.SendMessages, D.PermissionFlagsBits.ReadMessageHistory, D.PermissionFlagsBits.AttachFiles, D.PermissionFlagsBits.EmbedLinks] };
-    const closers = (cfg().tickets.closerRoleIds.length ? cfg().tickets.closerRoleIds : cfg().adminRoleIds).filter((id) => g.roles.cache.has(id));
+    const closers = withClosers ? (cfg().tickets.closerRoleIds.length ? cfg().tickets.closerRoleIds : cfg().adminRoleIds).filter((id) => g.roles.cache.has(id)) : [];
     const parent = parentId && g.channels.cache.get(parentId)?.type === D.ChannelType.GuildCategory ? parentId : undefined;
     return g.channels.create({
       name: ticketChannelName(user.username), type: D.ChannelType.GuildText, parent, topic: `${extraNames} · opened by ${user.tag || user.username} (${user.id})`,
@@ -262,22 +303,33 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
     await interaction.update({ content: 'Creating your order…', components: [] });
     const q = quote({ id: plan.id, price: plan.price * qty }, shop.discounts);
     const label = unitText(plan.label, qty);
-    const channel = await createTicketChannel(g, interaction.user, shop.categoryId || cfg().tickets.categoryId, `Purchase: ${label}`);
+    // claim notifications go to the method's channel (or the shop default); without one the admin roles see the ticket as before
+    const wantedClaim = method.claimChannelId || shop.claimChannelId;
+    const claimChannel = wantedClaim ? await g.channels.fetch(wantedClaim).catch(() => null) : null;
+    const claimChannelId = claimChannel && claimChannel.isTextBased() ? claimChannel.id : '';
+    const channel = await createTicketChannel(g, interaction.user, method.categoryId || shop.categoryId || cfg().tickets.categoryId, `Purchase: ${label}`, { closers: !claimChannelId });
     data.addTicket({ channelId: channel.id, userId: interaction.user.id, username: interaction.user.username, kind: 'shop', category: 'Purchase' });
-    const p = data.addPurchase({ channelId: channel.id, userId: interaction.user.id, username: interaction.user.username, planId: plan.id, planLabel: label, quantity: qty, unitLabel: plan.label, unitPrice: plan.price, days: plan.days * qty, methodId: method.id, methodLabel: method.label, basePrice: q.base, discountPercent: q.percent, discountLabel: q.discountLabel, total: q.total, currency: shop.currency });
-    const msg = await channel.send({ content: `<@${interaction.user.id}> thanks for your order! A team member will contact you about the payment.`, embeds: [orderEmbed(p)], components: orderButtons(), allowedMentions: { users: [interaction.user.id] } });
+    const p = data.addPurchase({ channelId: channel.id, userId: interaction.user.id, username: interaction.user.username, planId: plan.id, planLabel: label, quantity: qty, unitLabel: plan.label, unitPrice: plan.price, days: plan.days * qty, methodId: method.id, methodLabel: method.label, basePrice: q.base, discountPercent: q.percent, discountLabel: q.discountLabel, total: q.total, currency: shop.currency, claimChannelId });
+    const msg = await channel.send({ content: `<@${interaction.user.id}> thanks for your order! ${claimChannelId ? 'A seller will claim your ticket shortly and contact you about the payment.' : 'A team member will contact you about the payment.'}`, embeds: [orderEmbed(p)], components: orderButtons(p), allowedMentions: { users: [interaction.user.id] } });
     data.updatePurchase(p.id, { messageId: msg.id });
+    if (claimChannelId) {
+      const role = method.roleId && g.roles.cache.has(method.roleId) ? method.roleId : '';
+      const note = await claimChannel.send({ content: `${role ? `<@&${role}> ` : ''}There's a new customer!`, embeds: [notifyEmbed(p)], components: notifyButtons(p), allowedMentions: role ? { roles: [role] } : noMentions }).catch((e) => { log(`Claim message failed: ${e.message}`); return null; });
+      if (note) data.updatePurchase(p.id, { notifyChannelId: claimChannel.id, notifyMessageId: note.id });
+      else await channel.send('⚠ I could not post the claim message. Please tell an admin to check the bot permissions in the claim channel.');
+    }
     await interaction.editReply({ content: `Your order ticket was created: <#${channel.id}>` });
   }
 
   const purchaseOf = (interaction) => data.purchaseByChannel(interaction.channelId);
 
   async function shopComplete(interaction) {
-    if (!isCloser(interaction.member)) return interaction.reply(ephemeral('Only the configured team roles can complete purchases.'));
     const p = purchaseOf(interaction);
     if (!p || p.status !== 'open') return interaction.reply(ephemeral('This purchase is already finished.'));
-    const done = data.updatePurchase(p.id, { status: 'completed', completedAt: Date.now(), completedBy: interaction.user.id, completedByName: interaction.user.username });
+    if (!canHandle(interaction.member, p)) return interaction.reply(ephemeral(handleDenied(p)));
+    const done = data.updatePurchase(p.id, { status: 'completed', completedAt: Date.now(), completedBy: interaction.user.id, completedByName: interaction.user.username, sellerId: p.claimedBy || interaction.user.id, sellerName: p.claimedByName || interaction.user.username });
     await interaction.update({ embeds: [orderEmbed(done)], components: [] });
+    await syncNotify(done);
     const thanks = await interaction.channel.send({
       content: `<@${done.userId}>`,
       embeds: [new D.EmbedBuilder().setTitle('Thank you for your purchase!').setDescription('Please leave a rating — it only takes a few seconds.').setColor('#22c55e')],
@@ -292,32 +344,75 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
   }
 
   async function shopCancel(interaction) {
-    if (!isCloser(interaction.member)) return interaction.reply(ephemeral('Only the configured team roles can cancel purchases.'));
     const p = purchaseOf(interaction);
     if (!p || p.status !== 'open') return interaction.reply(ephemeral('This purchase is already finished.'));
+    if (!canHandle(interaction.member, p)) return interaction.reply(ephemeral(handleDenied(p)));
     const done = data.updatePurchase(p.id, { status: 'cancelled', cancelledAt: Date.now(), cancelledBy: interaction.user.id });
     await interaction.update({ embeds: [orderEmbed(done)], components: [] });
+    await syncNotify(done);
     await interaction.channel.send('Purchase cancelled. This ticket will be closed in 5 seconds…');
     onEvent('purchase_cancelled', done);
     await closeChannel(interaction.channel);
   }
 
+  const ticketAccess = { ViewChannel: true, SendMessages: true, ReadMessageHistory: true, AttachFiles: true, EmbedLinks: true };
+
+  async function shopClaim(interaction) {
+    const p = data.purchaseByNotify(interaction.message.id);
+    if (!p) return interaction.reply(ephemeral('This order no longer exists.'));
+    if (p.status !== 'open') return interaction.reply(ephemeral('This order is already finished.'));
+    const m = methodOf(p);
+    const allowed = m && m.roleId ? hasRole(interaction.member, [m.roleId]) : isAdmin(interaction.member);
+    if (!allowed) return interaction.reply(ephemeral(`Only ${m && m.roleId ? `<@&${m.roleId}>` : 'the admin roles'} can claim this ticket.`, { allowedMentions: noMentions }));
+    if (interaction.user.id === p.userId) return interaction.reply(ephemeral('You cannot claim your own order.'));
+    if (p.claimedBy) return interaction.reply(ephemeral(`This ticket is already claimed by ${claimedBy(p)}. It can be claimed again once they unclaim it.`, { allowedMentions: noMentions }));
+    const ch = await interaction.guild.channels.fetch(p.channelId).catch(() => null);
+    if (!ch) return interaction.reply(ephemeral('The ticket channel no longer exists.'));
+    await interaction.deferUpdate();
+    await ch.permissionOverwrites.edit(interaction.user.id, ticketAccess);
+    const upd = data.updatePurchase(p.id, { claimedBy: interaction.user.id, claimedByName: interaction.user.username, claimedAt: Date.now() });
+    await ch.send({ content: `Ticket claimed by <@${interaction.user.id}>`, allowedMentions: { users: [interaction.user.id] } });
+    await syncNotify(upd);
+    await syncOrder(upd);
+    onEvent('purchase_claimed', upd);
+  }
+
+  async function shopUnclaim(interaction) {
+    const p = data.purchaseByNotify(interaction.message.id) || purchaseOf(interaction);
+    if (!p || p.status !== 'open') return interaction.reply(ephemeral('This order is already finished.'));
+    if (!p.claimedBy) return interaction.reply(ephemeral('This ticket is not claimed.'));
+    if (interaction.user.id !== p.claimedBy && interaction.guild.ownerId !== interaction.user.id) return interaction.reply(ephemeral(`Only ${claimedBy(p)} can unclaim this ticket.`, { allowedMentions: noMentions }));
+    await interaction.deferUpdate();
+    const ch = await interaction.guild.channels.fetch(p.channelId).catch(() => null);
+    if (ch) {
+      await ch.permissionOverwrites.delete(p.claimedBy).catch((e) => log(`Could not remove ticket access: ${e.message}`));
+      await ch.send({ content: `Ticket has been unclaimed by <@${interaction.user.id}>`, allowedMentions: noMentions });
+    }
+    const upd = data.updatePurchase(p.id, { claimedBy: null, claimedByName: null });
+    await syncNotify(upd);
+    await syncOrder(upd);
+    onEvent('purchase_unclaimed', { ...upd, by: interaction.user });
+  }
+
   async function shopDiscountButton(interaction) {
-    if (!isCloser(interaction.member)) return interaction.reply(ephemeral('Only the configured team roles can change the price.'));
+    const cur = purchaseOf(interaction);
+    if (!cur || cur.status !== 'open') return interaction.reply(ephemeral('This purchase is already finished.'));
+    if (!canHandle(interaction.member, cur)) return interaction.reply(ephemeral(handleDenied(cur)));
     const input = new D.TextInputBuilder().setCustomId('percent').setLabel('Discount in percent (0-100)').setStyle(D.TextInputStyle.Short).setRequired(true).setMaxLength(3).setPlaceholder('e.g. 15');
     return interaction.showModal(new D.ModalBuilder().setCustomId('shop:discountmodal').setTitle('Set discount').addComponents(new D.ActionRowBuilder().addComponents(input)));
   }
 
   async function shopDiscountModal(interaction) {
-    if (!isCloser(interaction.member)) return interaction.reply(ephemeral('Only the configured team roles can change the price.'));
     const p = purchaseOf(interaction);
     if (!p || p.status !== 'open') return interaction.reply(ephemeral('This purchase is already finished.'));
+    if (!canHandle(interaction.member, p)) return interaction.reply(ephemeral(handleDenied(p)));
     const percent = Number(interaction.fields.getTextInputValue('percent').replace('%', '').trim());
     if (!Number.isInteger(percent) || percent < 0 || percent > 100) return interaction.reply(ephemeral('Enter a whole number between 0 and 100.'));
     const q = quote({ id: p.planId, price: p.basePrice }, [], { percent, label: `Discount by ${interaction.user.username}` });
     const updated = data.updatePurchase(p.id, { discountPercent: q.percent, discountLabel: q.discountLabel, total: q.total });
     const msg = p.messageId ? await interaction.channel.messages.fetch(p.messageId).catch(() => null) : null;
     if (msg) await msg.edit({ embeds: [orderEmbed(updated)] }).catch(() => {});
+    await syncNotify(updated);
     return interaction.reply(`Discount updated: **${percent}%** → new total **${updated.currency || cfg().shop.currency}${money(updated.total)}**`);
   }
 
@@ -341,8 +436,8 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
     const done = data.updatePurchase(p.id, { rating: n, feedback, ratedAt: Date.now() });
     const g = interaction.guild, r = cfg().ratings;
     const post = async (channelId, payload) => { const ch = channelId ? await g.channels.fetch(channelId).catch(() => null) : null; if (ch && ch.isTextBased()) await ch.send({ allowedMentions: noMentions, ...payload }).catch((e) => log(`Could not post to ${channelId}: ${e.message}`)); };
-    await post(r.channelId, { content: `<@${done.userId}> bought something and left a rating of ${stars(n)} (${n}/5)` });
-    if (feedback) await post(r.feedbackChannelId, { embeds: [new D.EmbedBuilder().setTitle('New feedback').setColor('#8b5cf6').setDescription(feedback.slice(0, 1000)).addFields({ name: 'From', value: `<@${done.userId}>`, inline: true }, { name: 'Rating', value: `${stars(n)} (${n}/5)`, inline: true }, { name: 'Purchase', value: done.planLabel, inline: true })] });
+    await post(r.channelId, { content: `<@${done.userId}> bought something${done.sellerId ? ` from <@${done.sellerId}>` : ''} and left a rating of ${stars(n)} (${n}/5)` });
+    if (feedback) await post(r.feedbackChannelId, { embeds: [new D.EmbedBuilder().setTitle('New feedback').setColor('#8b5cf6').setDescription(feedback.slice(0, 1000)).addFields({ name: 'Buyer', value: `<@${done.userId}>`, inline: true }, ...(done.sellerId ? [{ name: 'Seller', value: `<@${done.sellerId}>`, inline: true }] : []), { name: 'Rating', value: `${stars(n)} (${n}/5)`, inline: true }, { name: 'Purchase', value: done.planLabel, inline: true })] });
     const thanks = done.thanksMessageId ? await interaction.channel.messages.fetch(done.thanksMessageId).catch(() => null) : null;
     if (thanks) await thanks.edit({ components: [new D.ActionRowBuilder().addComponents(new D.ButtonBuilder().setCustomId('shop:close').setLabel('Close ticket').setStyle(D.ButtonStyle.Secondary))] }).catch(() => {});
     onEvent('purchase_rated', done);
@@ -481,6 +576,8 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
         if (id === 'tk:close') return await closeSupportTicket(interaction);
         if (id === 'shop:complete') return await shopComplete(interaction);
         if (id === 'shop:cancel') return await shopCancel(interaction);
+        if (id === 'shop:claim') return await shopClaim(interaction);
+        if (id === 'shop:unclaim') return await shopUnclaim(interaction);
         if (id === 'shop:discount') return await shopDiscountButton(interaction);
         if (id === 'shop:rate') return await shopRateButton(interaction);
         if (id === 'shop:close') return await shopClose(interaction);
@@ -524,7 +621,7 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
     if (!t) return;
     data.closeTicket(channel.id);
     const p = data.purchaseByChannel(channel.id);
-    if (p && p.status === 'open') { const done = data.updatePurchase(p.id, { status: 'cancelled', cancelledAt: Date.now(), note: 'Ticket channel was deleted' }); onEvent('purchase_cancelled', done); }
+    if (p && p.status === 'open') { const done = data.updatePurchase(p.id, { status: 'cancelled', cancelledAt: Date.now(), note: 'Ticket channel was deleted' }); onEvent('purchase_cancelled', done); syncNotify(done); }
   }
 
   // ------------------------------------------------------------------ lifecycle

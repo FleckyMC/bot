@@ -189,8 +189,13 @@
       grid('two', channel(s, 'channelId', 'Panel channel'), channel(s, 'categoryId', 'Create purchase tickets in category', 'categories', 'Empty = the ticket category above.')),
       grid('four', text(s, 'title', 'Panel title', { maxLength: 100 }), text(s, 'placeholder', 'Dropdown text', { maxLength: 100 }), text(s, 'currency', 'Currency symbol', { maxLength: 4 }), colorField(s, 'color', 'Colour')),
       text(s, 'description', 'Panel description', { multiline: true, maxLength: 2000 }),
-      el('b', '', 'Payment methods'),
-      listEditor(s.methods, () => ({ id: uid(), label: '', description: '' }), (m) => [grid('two', text(m, 'label', 'Name', { maxLength: 80, placeholder: 'PayPal' }), text(m, 'description', 'Short description', { maxLength: 100 }))], '+ Add payment method', 25),
+      el('b', '', 'Payment methods & sellers'),
+      note('Each payment method can have its own seller role, ticket category and claim channel. When someone buys with it, the seller role is pinged in the claim channel and a seller claims the ticket. Only the claimer is added to the ticket – neither the seller role nor the admin roles can see it. Without a claim channel, the admin roles see the ticket as usual.'),
+      channel(s, 'claimChannelId', 'Default claim channel', 'textChannels', 'Used by every payment method that has no claim channel of its own. Only sellers should be able to see it.'),
+      listEditor(s.methods, () => ({ id: uid(), label: '', description: '', roleId: '', categoryId: '', claimChannelId: '' }), (m) => [
+        grid('two', text(m, 'label', 'Name', { maxLength: 80, placeholder: 'PayPal' }), text(m, 'description', 'Short description', { maxLength: 100 })),
+        grid('three', roleOne(m, 'roleId', 'Seller role (e.g. “Paypal Seller”)'), channel(m, 'categoryId', 'Ticket category for this method', 'categories'), channel(m, 'claimChannelId', 'Claim channel (optional)', 'textChannels', 'Overrides the default above')),
+      ], '+ Add payment method', 25),
       el('b', '', 'Price per unit'),
       note('Members choose how many units they want (for example 5 weeks). The total is calculated as amount × price and shown in the ticket. Example: Name “week”, Days 7, Price 1.00.'),
       grid('two', text(s, 'minQuantity', 'Minimum amount', { type: 'number', min: 1, max: 1000 }), text(s, 'maxQuantity', 'Maximum amount', { type: 'number', min: 1, max: 1000 })),
@@ -249,20 +254,29 @@
       const rev = Object.entries(d.summary.revenue).map(([c, v]) => money(v, c)).join(' + ') || '0.00';
       tile(all ? 'Completed' : 'Purchases', String(d.summary.count));
       tile(all ? 'Revenue' : 'Total spent', rev);
-      tile('Average rating', d.summary.avgRating ? '⭐ ' + d.summary.avgRating + ' / 5' : '–');
+      tile(all ? 'Average rating' : 'Average rating', d.summary.avgRating ? '⭐ ' + d.summary.avgRating + ' / 5' : '–');
       if (all) tile('Open / cancelled', `${d.summary.open} / ${d.summary.cancelled}`);
       const head = $('purTable').tHead; head.replaceChildren();
-      const cols = all ? ['Date', 'Buyer', 'Duration', 'Payment', 'Price', 'Rating'] : ['Date', 'Duration', 'Payment', 'Price', 'Rating'];
+      const cols = ['Date', 'Buyer', 'Seller', 'Duration', 'Payment', 'Price', 'Rating'].concat(d.canDelete ? [''] : []);
       const hr = el('tr'); cols.forEach((c) => hr.append(el('th', '', c))); head.append(hr);
       const body = $('purTable').tBodies[0]; body.replaceChildren();
       for (const r of d.rows) {
         const tr = el('tr');
         tr.append(el('td', '', when(r.completedAt)));
-        if (all) { const td = el('td'); td.append(el('b', '', r.discordName || r.userId)); if (r.account) td.append(el('div', 'hint', 'Dashboard: ' + r.account)); tr.append(td); }
+        const buyer = el('td'); buyer.append(el('b', '', r.discordName || r.userId)); if (all && r.account) buyer.append(el('div', 'hint', 'Dashboard: ' + r.account)); tr.append(buyer);
+        const seller = el('td'); seller.append(el('b', '', r.sellerName || '–')); if (all && r.sellerAccount) seller.append(el('div', 'hint', 'Dashboard: ' + r.sellerAccount)); tr.append(seller);
         tr.append(el('td', '', `${r.plan} (${r.days} d)`), el('td', '', r.method));
         const price = el('td', 'num', money(r.total, r.currency)); if (r.discountPercent) price.append(el('div', 'hint', `-${r.discountPercent}% from ${money(r.basePrice, r.currency)}`)); tr.append(price);
-        const rt = el('td', '', r.rating ? '⭐'.repeat(r.rating) : '–'); if (r.feedback) rt.title = r.feedback; tr.append(rt);
+        const rt = el('td'); rt.append(el('span', '', r.rating ? '⭐'.repeat(r.rating) : '–')); if (r.feedback) { rt.title = r.feedback; rt.append(el('div', 'hint', r.feedback.length > 80 ? r.feedback.slice(0, 80) + '…' : r.feedback)); } tr.append(rt);
+        if (d.canDelete) { const td = el('td'); const del = el('button', 'danger sm', 'Delete'); del.type = 'button'; del.addEventListener('click', async () => { const ok = await ask({ title: 'Delete this purchase?', text: 'It is removed from the history and the statistics.', ok: 'Delete', danger: true }); if (!ok) return; try { await api('/api/purchases/' + encodeURIComponent(r.id), { method: 'DELETE' }); toast('Purchase deleted'); loadPurchases(); } catch (e) { toast(e.message, true); } }); td.append(del); tr.append(td); }
         body.append(tr);
+      }
+      $('purClear').hidden = !d.canDelete;
+      const sb = $('purSellersBox'); sb.hidden = !(d.sellers && d.sellers.length);
+      if (!sb.hidden) {
+        const sh = $('purSellers').tHead; sh.replaceChildren(); const shr = el('tr'); ['Seller', 'Sales', 'Revenue', 'Average rating'].forEach((c) => shr.append(el('th', '', c))); sh.append(shr);
+        const sbody = $('purSellers').tBodies[0]; sbody.replaceChildren();
+        for (const s of d.sellers) { const tr = el('tr'); tr.append(el('td', '', s.name), el('td', '', String(s.count)), el('td', '', Object.entries(s.revenue).map(([c, v]) => money(v, c)).join(' + ')), el('td', '', s.avgRating ? '⭐ ' + s.avgRating : '–')); sbody.append(tr); }
       }
       const empty = $('purEmpty'); empty.hidden = d.rows.length > 0;
       $('purTable').parentElement.hidden = !d.rows.length;
@@ -270,6 +284,11 @@
     } catch (e) { toast(e.message, true); }
   }
   $('purRefresh').addEventListener('click', loadPurchases);
+  $('purClear').addEventListener('click', async () => {
+    const ok = await ask({ title: 'Clear the purchase history?', text: 'All completed and cancelled purchases are deleted, including the statistics and ratings. Open orders stay. This cannot be undone.', ok: 'Clear history', danger: true });
+    if (!ok) return;
+    try { const r = await api('/api/purchases/clear', { method: 'POST' }); toast(`${r.removed} purchase${r.removed === 1 ? '' : 's'} removed`); loadPurchases(); } catch (e) { toast(e.message, true); }
+  });
 
   // ------------------------------------------------------------ founder: token and start/stop
 

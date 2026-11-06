@@ -251,3 +251,9 @@ table.table td.num{text-align:right;white-space:nowrap}
 .topbar-inner{flex-wrap:wrap;row-gap:6px}
 .tabs{order:3;flex:1 1 100%}
 .topbar-inner .who{margin-left:auto}
+
+.slot.moving{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent),0 0 18px rgba(166,107,255,.55);transform:translateY(-2px)}
+.slot.empty.target{cursor:pointer;opacity:1;border-color:var(--line2)}
+.slot.empty.target:hover{border-color:var(--accent);background:var(--accent-soft);transform:none}
+.seg{display:inline-flex;gap:6px;margin-bottom:10px}
+.seg button[aria-pressed=true]{background:var(--accent-soft);border-color:var(--accent);color:#fff}

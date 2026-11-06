@@ -142,7 +142,7 @@
     time_added: 'added time to', renamed: 'renamed', limit_changed: 'changed the limit of', lifetime_changed: 'changed the membership of',
     discord_linked: 'linked Discord:', discord_changed: 'changed the connected Discord account of', discord_revoked: 'revoked the Discord authorization of',
     bot_config: 'changed the Discord bot settings', bot_panel: 'posted a bot panel:', bot_started: 'started the Discord bot', bot_stopped: 'stopped the Discord bot',
-    bot_honeypot: 'caught someone:', bot_kick: 'kicked', bot_ban: 'banned', bot_unban: 'unbanned', purchase_completed: 'completed a purchase:', purchase_cancelled: 'purchase cancelled:', purchase_rated: 'rating received:',
+    bot_honeypot: 'caught someone:', purchase_claimed: 'claimed a ticket:', purchase_unclaimed: 'unclaimed a ticket:', purchase_deleted: 'removed from the purchase history:', audit_cleared: 'cleared the activity log', bot_kick: 'kicked', bot_ban: 'banned', bot_unban: 'unbanned', purchase_completed: 'completed a purchase:', purchase_cancelled: 'purchase cancelled:', purchase_rated: 'rating received:',
   };
   async function loadAudit() {
     const box = $('auditList');
@@ -173,6 +173,11 @@
     catch (err) { toast(err.message, true); }
   });
   $('refreshAccounts').addEventListener('click', loadUsers);
+  $('clearAudit').addEventListener('click', async () => {
+    const r = await ask({ title: 'Clear the activity log?', text: 'This removes the whole account activity history for everyone. It cannot be undone.', ok: 'Clear log', danger: true });
+    if (!r) return;
+    try { await api('/api/admin/audit/clear', { method: 'POST' }); toast('Activity log cleared'); loadAudit(); } catch (e) { toast(e.message, true); }
+  });
   $('accountSearch').addEventListener('input', draw);
   $('accountRole').addEventListener('change', draw);
 

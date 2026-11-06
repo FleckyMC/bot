@@ -492,6 +492,12 @@ class BotManager extends EventEmitter {
     return w.dropFromSlots(requests);
   }
 
+  async moveItem(name, from, to, item) {
+    const w = this.workers.get(String(name || ''));
+    if (!w) throw new Error('Unknown bot');
+    return w.moveItem({ from, to, name: item });
+  }
+
   async dropAll(name, options = {}) {
     const w = this.workers.get(String(name || ''));
     if (!w) throw new Error('Unknown bot');

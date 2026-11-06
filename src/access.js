@@ -21,7 +21,7 @@ function authorizeAction(user, type, payload, owned) {
     }
     return;
   }
-  if ((type === 'bot_profile' || type === 'remove_bot' || type === 'drop_items' || type === 'drop_all') && name && owned(name, user)) return;
+  if ((type === 'bot_profile' || type === 'remove_bot' || type === 'drop_items' || type === 'drop_all' || type === 'move_item') && name && owned(name, user)) return;
   if (type === 'disconnect_selected' && namesAllOwned(payload && payload.names)) return;
   if (type === 'connect_selected' && namesAllOwned(payload && payload.names)) return;
   throw new Error('Only the admin can change global settings or control bots that are not yours.');

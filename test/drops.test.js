@@ -48,3 +48,18 @@ test('refuses when the bot is offline', async () => {
   w.spawned = false;
   await assert.rejects(w.dropFromSlots([{ slot: 9, name: 'stone', count: 1 }]), /not connected/);
 });
+
+test('moves and swaps stacks between slots, validating first', async () => {
+  const { w, bot } = setup([[9, 'cobblestone', 64], [36, 'diamond', 5]]);
+  const moves = [];
+  bot.moveSlotItem = async (a, b) => { moves.push([a, b]); };
+  await w.moveItem({ from: 9, to: 20, name: 'cobblestone' });
+  await w.moveItem({ from: 36, to: 9 });
+  assert.deepEqual(moves, [[9, 20], [36, 9]]);
+  await assert.rejects(w.moveItem({ from: 9, to: 9 }), /different slot/);
+  await assert.rejects(w.moveItem({ from: 2, to: 9 }), /Invalid inventory slot/);
+  await assert.rejects(w.moveItem({ from: 9, to: 99 }), /Invalid inventory slot/);
+  await assert.rejects(w.moveItem({ from: 11, to: 12 }), /is empty/);
+  await assert.rejects(w.moveItem({ from: 9, to: 10, name: 'dirt' }), /no longer contains/);
+  assert.equal(moves.length, 2);
+});

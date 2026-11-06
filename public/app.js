@@ -9,6 +9,8 @@ let msaDismissed = false;
 let lastMsaSig = '';
 let invBot = null;
 const invSel = new Map(); // slot -> item name (for stale-selection checks)
+let invMode = 'move'; // 'move' = click an item, then a slot; 'drop' = select items to drop
+let invMove = null; // slot picked up in move mode
 const picked = new Set(); // bots ticked on the Bots tab
 const sigs = {};
 const TABS = ['overview', 'bots', 'inventory', 'mining', 'automation', 'console', 'accounts', 'bot', 'purchases', 'founder', 'settings'];
@@ -368,7 +370,7 @@ function renderInventory(s, force) {
   const items = bot.inventory || [];
   // forget selections whose slot changed
   for (const [slot, name] of [...invSel]) { const it = items.find((i) => i.slot === slot); if (!it || it.name !== name) invSel.delete(slot); }
-  const sig = JSON.stringify([bot.name, !!bot.pos, items, [...invSel.keys()], s.bots.map((b) => b.name), bot.freeSlots]);
+  const sig = JSON.stringify([bot.name, !!bot.pos, invMode, invMove, items, [...invSel.keys()], s.bots.map((b) => b.name), bot.freeSlots]);
   if (!force && !changed('inv', sig)) return;
   sigs.inv = sig;
 
@@ -376,7 +378,7 @@ function renderInventory(s, force) {
   for (const b of s.bots) {
     const p = el('button', 'pill', botLabel(b)); p.type = 'button';
     p.setAttribute('aria-pressed', String(b.name === invBot));
-    p.onclick = () => { invBot = b.name; invSel.clear(); renderInventory(state, true); };
+    p.onclick = () => { invBot = b.name; invSel.clear(); invMove = null; renderInventory(state, true); };
     pills.append(p);
   }
   const body = $('invBody');
@@ -386,16 +388,24 @@ function renderInventory(s, force) {
   const board = el('div', 'inv-board');
   const bySlot = new Map(items.map((i) => [i.slot, i]));
 
+  const moveTo = async (to) => {
+    const from = invMove, it = bySlot.get(from);
+    invMove = null;
+    if (it) await call('move_item', { name: invBot, from, to, item: it.name });
+    renderInventory(state, true);
+  };
   const mk = (slot, hotbarNo) => {
     const it = bySlot.get(slot);
     if (!it) {
-      const d = el('div', 'slot empty');
+      const movable = invMode === 'move' && invMove !== null && bot.pos;
+      const d = el(movable ? 'button' : 'div', 'slot empty' + (movable ? ' target' : ''));
+      if (movable) { d.type = 'button'; d.setAttribute('aria-label', `Move here, slot ${slot}`); d.onclick = () => moveTo(slot); }
       if (slotKind[slot]) { d.title = slotName[slot]; d.innerHTML = `<span class="ico">${ICONS.svg(slotKind[slot])}</span>`; d.style.opacity = '.45'; }
       if (hotbarNo) d.classList.add('hot'), d.dataset.n = hotbarNo;
       return d;
     }
     const { kind, color } = ICONS.classify(it.name);
-    const b = el('button', 'slot' + (it.enchanted || it.mending ? ' ench' : '') + (invSel.has(slot) ? ' picked' : ''));
+    const b = el('button', 'slot' + (it.enchanted || it.mending ? ' ench' : '') + (invMode === 'drop' && invSel.has(slot) ? ' picked' : '') + (invMode === 'move' && invMove === slot ? ' moving' : ''));
     b.type = 'button';
     b.style.setProperty('--c', color);
     b.setAttribute('aria-label', `${it.displayName || humanize(it.name)} x${it.count}, slot ${slot}`);
@@ -409,7 +419,11 @@ function renderInventory(s, force) {
       i.style.width = pct + '%'; i.style.background = pct < 20 ? 'var(--danger)' : pct < 55 ? 'var(--warn)' : 'var(--ok)';
       d.append(i); b.append(d);
     }
-    b.onclick = () => { if (invSel.has(slot)) invSel.delete(slot); else invSel.set(slot, it.name); renderInventory(state, true); };
+    b.onclick = () => {
+      if (invMode === 'move') { if (invMove === null) invMove = slot; else if (invMove === slot) invMove = null; else return moveTo(slot); renderInventory(state, true); return; }
+      if (invSel.has(slot)) invSel.delete(slot); else invSel.set(slot, it.name);
+      renderInventory(state, true);
+    };
     b.onmouseenter = (e) => showTip(it, e); b.onmousemove = moveTip; b.onmouseleave = hideTip; b.onfocus = () => showTip(it, null, b); b.onblur = hideTip;
     return b;
   };
@@ -433,8 +447,15 @@ function renderInventory(s, force) {
   hotWrap.append(hot);
   board.append(top, hotWrap);
   wrap.append(board);
+  const modes = el('div', 'seg');
+  for (const [key, label] of [['move', 'Move items'], ['drop', 'Select to drop']]) {
+    const mb = el('button', 'ghost sm', label); mb.type = 'button'; mb.setAttribute('aria-pressed', String(invMode === key));
+    mb.onclick = () => { invMode = key; invMove = null; invSel.clear(); renderInventory(state, true); };
+    modes.append(mb);
+  }
+  wrap.prepend(modes);
   if (!bot.pos) wrap.append(el('p', 'hint', 'This bot is offline. Connect it to see and manage its inventory.'));
-  else wrap.append(el('p', 'hint', `${items.length} item stack${items.length === 1 ? '' : 's'} · ${bot.freeSlots ?? '?'} free slots. Purple glow = enchanted. Hover an item for details.`));
+  else wrap.append(el('p', 'hint', `${items.length} item stack${items.length === 1 ? '' : 's'} · ${bot.freeSlots ?? '?'} free slots. ` + (invMode === 'move' ? (invMove === null ? 'Click an item, then click a slot to move it (items swap places).' : 'Now click the slot to move it to – click the item again to cancel.') : 'Click items to select them for dropping.') + ' Purple glow = enchanted.'));
 
   // side panel
   const side = el('div', 'panel');
@@ -462,7 +483,7 @@ function renderInventory(s, force) {
   const row2 = el('div', 'toolbar'); row2.style.marginTop = '14px'; row2.append(everything);
   side.append(row1, row2);
 
-  layout.append(wrap, side);
+  if (invMode === 'drop') layout.append(wrap, side); else { layout.append(wrap); layout.style.gridTemplateColumns = '1fr'; }
   body.append(layout);
 }
 

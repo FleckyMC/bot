@@ -27,6 +27,14 @@ function createBotData(file) {
     purchase: (id) => data.purchases.find((p) => p.id === id) || null,
     purchaseByChannel: (channelId) => data.purchases.find((p) => p.channelId === channelId && p.status === 'open') || data.purchases.find((p) => p.channelId === channelId) || null,
     updatePurchase(id, patch) { const p = data.purchases.find((x) => x.id === id); if (!p) return null; Object.assign(p, patch); save(); return p; },
+    purchaseByNotify: (messageId) => data.purchases.find((p) => p.notifyMessageId === messageId) || null,
+    deletePurchase(id) {
+      const p = data.purchases.find((x) => x.id === id);
+      if (!p) return false;
+      if (p.status === 'open') throw new Error('This order is still open. Cancel or complete it in Discord first.');
+      data.purchases = data.purchases.filter((x) => x.id !== id); save(); return true;
+    },
+    clearPurchases() { const n = data.purchases.filter((p) => p.status !== 'open').length; data.purchases = data.purchases.filter((p) => p.status === 'open'); save(); return n; },
     purchases: () => data.purchases.slice(),
     setPanel(key, value) { data.panels[key] = value; save(); },
     getPanel: (key) => data.panels[key] || null,

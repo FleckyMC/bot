@@ -22,6 +22,8 @@ function createAudit(file) {
   const ref = (u) => (u ? { id: u.id || null, username: u.username || null, role: u.role || null } : null);
 
   /** type: created | deleted | auto_deleted | expired | time_added | renamed | limit_changed | discord_linked | discord_changed | discord_revoked */
+  function clear() { const n = entries.length; entries = []; save(); return n; }
+
   function add({ type, actor = null, target = null, detail = '' }) {
     const entry = { t: Date.now(), type, actor: ref(actor), target: ref(target), detail: String(detail || '').slice(0, 300) };
     entries.push(entry);
@@ -43,7 +45,7 @@ function createAudit(file) {
     }
     return out;
   }
-  return { add, list, size: () => entries.length };
+  return { add, list, clear, size: () => entries.length };
 }
 
 module.exports = { createAudit };
