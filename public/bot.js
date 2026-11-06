@@ -145,8 +145,8 @@
       } else if (info) { const kv = el('div', 'kv'); kv.append(el('span', '', 'Server'), el('b', '', `${info.name} (${info.memberCount} members)`)); serverKids.push(kv); }
       if (st.status === 'online' && !info) serverKids.push(note('The bot is not in a server yet. Invite it with the link from the Founder tab.'));
     }
-    serverKids.push(roleMulti(c, 'adminRoleIds', 'Admin roles', 'These roles can use /kick, /ban, /unban and can complete or cancel purchases. Ticket closing uses the same roles unless you pick different ones in the Tickets section.'));
-    if (!c.adminRoleIds.length) serverKids.push(note('⚠ No admin roles selected: only the server owner can use the admin functions.'));
+    serverKids.push(roleMulti(c, 'adminRoleIds', 'Moderation roles (server admins)', 'These roles can use /kick, /ban and /unban and are ignored by the honeypot. Support roles and purchase admins (below) use these until you set their own.'));
+    if (!c.adminRoleIds.length) serverKids.push(note('⚠ No moderation roles selected: only the server owner can kick or ban.'));
     root.append(section('General', 'Server & admin roles', ...serverKids));
 
     // --- welcome / leave
@@ -174,13 +174,13 @@
 
     // --- tickets
     const t = c.tickets;
-    root.append(section('Support', 'Ticket panel', note('Members pick a category from a dropdown and a private channel named “ticket-from-<name>” opens. Only the roles below can close tickets.'),
+    root.append(section('Support', 'Ticket panel', note('Members pick a category from a dropdown and a private channel named “ticket-from-<name>” opens. Only the support roles can see and close support tickets.'),
       grid('two', channel(t, 'channelId', 'Panel channel'), channel(t, 'categoryId', 'Create tickets in category', 'categories', 'Optional. Tickets are created at the top of the server otherwise.')),
       grid('three', text(t, 'title', 'Panel title', { maxLength: 100 }), text(t, 'placeholder', 'Dropdown text', { maxLength: 100 }), colorField(t, 'color', 'Colour')),
       text(t, 'description', 'Panel description', { multiline: true, maxLength: 2000 }),
-      grid('two', text(t, 'limitPerUser', 'Open tickets per member', { type: 'number', min: 1, max: 20, hint: 'Applies to support and purchase tickets together.' }), roleMulti(t, 'closerRoleIds', 'Roles that can close tickets', 'Empty = the admin roles from above.')),
+      grid('two', text(t, 'limitPerUser', 'Open tickets per member', { type: 'number', min: 1, max: 20, hint: 'Applies to support and purchase tickets together.' }), roleMulti(t, 'closerRoleIds', 'Support roles', 'These roles see and can close support tickets. Empty = the moderation roles.')),
       el('b', '', 'Categories (dropdown options)'),
-      listEditor(t.categories, () => ({ id: uid(), label: '', description: '', emoji: '' }), (x) => [grid('three', text(x, 'label', 'Name', { maxLength: 80 }), text(x, 'description', 'Short description', { maxLength: 100 }), text(x, 'emoji', 'Emoji (optional)', { maxLength: 64 }))], '+ Add category', 25),
+      listEditor(t.categories, () => ({ id: uid(), label: '', description: '', emoji: '' }), (x) => [grid('three', text(x, 'label', 'Name', { maxLength: 80 }), text(x, 'description', 'Short description', { maxLength: 100 }), text(x, 'emoji', 'Emoji (optional)', { maxLength: 64 })), roleMulti(x, 'roleIds', 'Roles for this category (optional)', 'Only these roles get tickets of this category. Empty = the support roles above.')], '+ Add category', 25),
       postButton('tickets', null, 'tickets', 'Save & post panel')));
 
     // --- shop
@@ -191,6 +191,7 @@
       text(s, 'description', 'Panel description', { multiline: true, maxLength: 2000 }),
       el('b', '', 'Payment methods & sellers'),
       note('Each payment method can have its own seller role, ticket category and claim channel. When someone buys with it, the seller role is pinged in the claim channel and a seller claims the ticket. Only the claimer is added to the ticket – neither the seller role nor the admin roles can see it. Without a claim channel, the admin roles see the ticket as usual.'),
+      roleMulti(s, 'adminRoleIds', 'Purchase admins', 'These roles can claim any ticket, unclaim other sellers\' tickets and complete or cancel purchases. They are not added to tickets automatically. Empty = the moderation roles.'),
       channel(s, 'claimChannelId', 'Default claim channel', 'textChannels', 'Used by every payment method that has no claim channel of its own. Only sellers should be able to see it.'),
       listEditor(s.methods, () => ({ id: uid(), label: '', description: '', roleId: '', categoryId: '', claimChannelId: '' }), (m) => [
         grid('two', text(m, 'label', 'Name', { maxLength: 80, placeholder: 'PayPal' }), text(m, 'description', 'Short description', { maxLength: 100 })),

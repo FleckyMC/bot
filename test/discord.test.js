@@ -138,7 +138,7 @@ test('purchase flow: order → discount → complete → rating → close, and c
   // only the configured roles can complete
   const denied = w.button(buyer, 'shop:complete', channel);
   await w.handle(denied);
-  assert.match(denied.replies[0].content, /Only the configured team roles/);
+  assert.match(denied.replies[0].content, /Only the purchase admins/);
   assert.equal(w.data.purchases()[0].status, 'open');
 
   // admin discount via modal changes the total
@@ -179,31 +179,39 @@ test('purchase flow: order → discount → complete → rating → close, and c
   const invalid = w.modal(buyer, 'shop:ratemodal', channel, { stars: '9' });
   await w.handle(invalid);
   assert.match(invalid.replies[0].content, /1 to 5/);
+  const t = setTimeout; global.setTimeout = (fn) => { fn(); return 0; };
   const ok = w.modal(buyer, 'shop:ratemodal', channel, { stars: '4', feedback: 'Fast and friendly' });
-  await w.handle(ok);
-  assert.equal(w.channels.get(ID.ratings).sent[0].content, `<@${ID.buyer}> bought something from <@${ID.staff}> and left a rating of ⭐⭐⭐⭐ (4/5)`);
+  try { await w.handle(ok); } finally { global.setTimeout = t; }
+  const card = w.channels.get(ID.ratings).sent[0].embeds[0].toJSON();
+  assert.equal(card.description, `<@${ID.buyer}> bought something from <@${ID.staff}> and left a rating of ⭐⭐⭐⭐ (4/5)`);
+  assert.deepEqual(card.fields.map((f) => f.name), ['🛒 Buyer', '🧑‍💼 Seller', '⭐ Rating', '📦 Product', '💶 Price', '💳 Payment']);
+  assert.match(JSON.stringify(card), /⭐⭐⭐⭐☆/);
   assert.deepEqual(w.channels.get(ID.ratings).sent[0].allowedMentions, { parse: [] });
   assert.match(JSON.stringify(w.channels.get(ID.feedback).sent[0].embeds[0].toJSON()), /Fast and friendly/);
-  const second = w.modal(buyer, 'shop:ratemodal', channel, { stars: '5' });
-  await w.handle(second);
-  assert.match(second.replies[0].content, /already rated/);
-  assert.equal(w.channels.get(ID.ratings).sent.length, 1);
-
-  // the buyer closes the ticket
-  const t = setTimeout; global.setTimeout = (fn) => { fn(); return 0; };
-  try { await w.handle(w.button(buyer, 'shop:close', channel)); } finally { global.setTimeout = t; }
+  assert.match(ok.replies[0], /close in 5 seconds/);
+  // the ticket closes by itself after the rating
   assert.equal(channel.deleted, true);
   assert.equal(w.data.openTicketsFor(ID.buyer).length, 0);
+  assert.equal(w.channels.get(ID.ratings).sent.length, 1);
+
+  // the close button works for a buyer who skips the rating
+  await w.handle(w.select(buyer, 'shop:pay:week:1', ['paypal']));
+  const p3 = w.data.purchases()[1];
+  const ch3 = w.channels.get(p3.channelId);
+  await w.handle(w.button(staff, 'shop:complete', ch3, [ID.admin]));
+  global.setTimeout = (fn) => { fn(); return 0; };
+  try { await w.handle(w.button(buyer, 'shop:close', ch3)); } finally { global.setTimeout = t; }
+  assert.equal(ch3.deleted, true);
 
   // cancelled purchase: ticket closed, no stats
   await w.handle(w.select(buyer, 'shop:pay:week:1', ['paypal']));
-  const p2 = w.data.purchases()[1];
+  const p2 = w.data.purchases()[2];
   const ch2 = w.channels.get(p2.channelId);
   global.setTimeout = (fn) => { fn(); return 0; };
   try { await w.handle(w.button(staff, 'shop:cancel', ch2, [ID.admin])); } finally { global.setTimeout = t; }
   assert.equal(w.data.purchase(p2.id).status, 'cancelled');
   assert.equal(ch2.deleted, true);
-  assert.equal(w.data.purchases().filter((x) => x.status === 'completed').length, 1);
+  assert.equal(w.data.purchases().filter((x) => x.status === 'completed').length, 2);
 });
 
 test('support tickets: any member opens, only team roles close, deleted channels free the limit', async () => {
@@ -218,7 +226,7 @@ test('support tickets: any member opens, only team roles close, deleted channels
   assert.ok(ov.some((o) => o.id === ID.admin && o.allow.length), 'team role has access');
   const no = w.button(buyer, 'tk:close', channel);
   await w.handle(no);
-  assert.match(no.replies[0].content, /Only the configured team roles/);
+  assert.match(no.replies[0].content, /Only the support roles/);
   // channel deleted by hand: the user can open a new ticket again
   w.channels.delete(channel.id);
   await w.handle(w.select(buyer, 'tk:open', ['support']));
@@ -397,7 +405,8 @@ test('claim system: seller roles per payment method, claim/unclaim, access only 
   const mkc = (id, extra) => { const ch = { id, sent: [], access: new Map(), isTextBased: () => true, ...extra, messages: { fetch: async (mid) => ch.msgs.get(mid) || null }, msgs: new Map(),
     send: async (p) => { const m = { id: 'n' + (ch.msgs.size + 1), payload: p, edits: [], edit: async (e) => { m.edits.push(e); return m; } }; ch.msgs.set(m.id, m); ch.sent.push(p); return m; } }; w.channels.set(id, ch); return ch; };
   const claimPP = mkc(CLAIM_PP), claimAll = mkc(CLAIM_ALL); mkc(CAT, { type: D.ChannelType.GuildCategory });
-  w.config.replace({ shop: { claimChannelId: CLAIM_ALL, methods: [
+  const PA = '888888888888888889', PAUSER = { id: '666666666666666669', username: 'Boss2', tag: 'B#0' }; w.guild.roles.cache.set(PA, {});
+  w.config.replace({ shop: { adminRoleIds: [PA], claimChannelId: CLAIM_ALL, methods: [
     { id: 'paypal', label: 'PayPal', roleId: PP, categoryId: CAT, claimChannelId: CLAIM_PP },
     { id: 'paysafe', label: 'Paysafe', roleId: PS } ] } });
   assert.equal(w.config.get().shop.methods[0].roleId, PP);
@@ -441,10 +450,13 @@ test('claim system: seller roles per payment method, claim/unclaim, access only 
 
   // unclaim: access removed, message in the ticket, claimable again
   const un2 = click(S2, 'shop:unclaim', [PS]); await w.handle(un2);
-  assert.match(un2.replies[0].content, /Only <@666666666666666661> can unclaim/);
-  const un = click(S1, 'shop:unclaim', [PS]); await w.handle(un);
+  assert.match(un2.replies[0].content, /can unclaim/);
+  // moderation roles are not purchase admins any more; purchase admins may take over
+  const modTry = click(staff, 'shop:unclaim', [ID.admin]); await w.handle(modTry);
+  assert.match(modTry.replies[0].content, /purchase admins can unclaim/);
+  const un = click(PAUSER, 'shop:unclaim', [PA]); await w.handle(un);
   assert.equal(ticket.access.size, 0);
-  assert.equal(ticket.sent.at(-1).content, `Ticket has been unclaimed by <@${S1.id}>`);
+  assert.equal(ticket.sent.at(-1).content, `Ticket has been unclaimed by <@${PAUSER.id}>`);
   assert.equal(w.data.purchase(p.id).claimedBy, null);
   assert.equal(noteMsg.edits.at(-1).components[0].components[0].toJSON().label, 'Claim ticket');
   const early = w.button(S1, 'shop:complete', ticket, [PS]); await w.handle(early);
@@ -456,8 +468,10 @@ test('claim system: seller roles per payment method, claim/unclaim, access only 
   p = w.data.purchase(p.id);
   assert.equal(p.status, 'completed'); assert.equal(p.sellerId, S2.id);
   assert.equal(noteMsg.edits.at(-1).components.length, 0);
-  await w.handle(w.modal(buyer, 'shop:ratemodal', ticket, { stars: '5', feedback: 'great' }));
-  assert.equal(w.channels.get(ID.ratings).sent[0].content, `<@${ID.buyer}> bought something from <@${S2.id}> and left a rating of ⭐⭐⭐⭐⭐ (5/5)`);
+  const t0 = setTimeout; global.setTimeout = (fn) => { fn(); return 0; };
+  try { await w.handle(w.modal(buyer, 'shop:ratemodal', ticket, { stars: '5', feedback: 'great' })); } finally { global.setTimeout = t0; }
+  assert.equal(w.channels.get(ID.ratings).sent[0].embeds[0].toJSON().description, `<@${ID.buyer}> bought something from <@${S2.id}> and left a rating of ⭐⭐⭐⭐⭐ (5/5)`);
+  assert.equal(ticket.deleted, true);
   assert.match(JSON.stringify(w.channels.get(ID.feedback).sent[0].embeds[0].toJSON()), /Seller/);
 
   // PayPal has its own claim channel and its own category
@@ -467,4 +481,45 @@ test('claim system: seller roles per payment method, claim/unclaim, access only 
   assert.equal(p2.claimChannelId, CLAIM_PP);
   assert.equal(w.channels.get(p2.channelId).opts.parent, CAT);
   assert.equal(claimPP.sent[0].content, `<@&${PP}> There's a new customer!`);
+});
+
+test('roles are separate: moderation, support (per category) and purchase admins', async () => {
+  const w = world();
+  const SUP = '888888888888888871', BUG = '888888888888888872', PA = '888888888888888873';
+  for (const r of [SUP, BUG, PA]) w.guild.roles.cache.set(r, {});
+  w.config.replace({ tickets: { closerRoleIds: [SUP], categories: [{ id: 'support', label: 'Support' }, { id: 'bug', label: 'Bug report', roleIds: [BUG] }] }, shop: { adminRoleIds: [PA] } });
+  // general support category: support roles get access, moderation roles do not
+  await w.handle(w.select(buyer, 'tk:open', ['support']));
+  const t1 = w.data.openTicketsFor(ID.buyer)[0]; const c1 = w.channels.get(t1.channelId);
+  const ids = (c) => c.opts.permissionOverwrites.map((o) => o.id);
+  assert.ok(ids(c1).includes(SUP) && !ids(c1).includes(ID.admin) && !ids(c1).includes(BUG));
+  const noMod = w.button(staff, 'tk:close', c1, [ID.admin]); await w.handle(noMod);
+  assert.match(noMod.replies[0].content, /support roles/);
+  const noBug = w.button(staff, 'tk:close', c1, [BUG]); await w.handle(noBug);
+  assert.match(noBug.replies[0].content, /support roles/);
+  const t = setTimeout; global.setTimeout = (fn) => { fn(); return 0; };
+  try { await w.handle(w.button(staff, 'tk:close', c1, [SUP])); } finally { global.setTimeout = t; }
+  assert.equal(c1.deleted, true);
+  // a category with its own roles uses only those
+  await w.handle(w.select(buyer, 'tk:open', ['bug']));
+  const c2 = w.channels.get(w.data.openTicketsFor(ID.buyer)[0].channelId);
+  assert.ok(ids(c2).includes(BUG) && !ids(c2).includes(SUP) && !ids(c2).includes(ID.admin));
+  // moderation roles keep kick/ban only; purchase admins are separate (no claim channel -> they join purchase tickets)
+  await w.handle(w.select({ id: '555555555555555560', username: 'Kim', tag: 'K#0' }, 'shop:pay:week:1', ['paypal']));
+  const c3 = w.channels.get(w.data.purchases()[0].channelId);
+  assert.ok(ids(c3).includes(PA) && !ids(c3).includes(ID.admin) && !ids(c3).includes(SUP));
+  const nope = w.button(staff, 'shop:complete', c3, [ID.admin]); await w.handle(nope);
+  assert.match(nope.replies[0].content, /purchase admins/);
+  await w.handle(w.button(staff, 'shop:complete', c3, [PA]));
+  assert.equal(w.data.purchases()[0].status, 'completed');
+});
+
+test('a ticket that cannot be deleted tells people what to do', async () => {
+  const w = world();
+  await w.handle(w.select(buyer, 'tk:open', ['support']));
+  const t = w.data.openTicketsFor(ID.buyer)[0]; const ch = w.channels.get(t.channelId);
+  ch.delete = async () => { throw new Error('Missing Permissions'); };
+  const old = setTimeout; global.setTimeout = (fn) => { fn(); return 0; };
+  try { await w.handle(w.button(staff, 'tk:close', ch, [ID.admin])); await new Promise((r) => setImmediate(r)); } finally { global.setTimeout = old; }
+  assert.match(ch.sent.at(-1), /Manage Channels/);
 });

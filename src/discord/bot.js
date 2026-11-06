@@ -29,7 +29,10 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
   const rolesOf = (list) => (list || []).filter(Boolean);
   const hasRole = (member, ids) => !!member && (member.guild.ownerId === member.id || rolesOf(ids).some((id) => member.roles.cache.has(id)));
   const isAdmin = (member) => hasRole(member, cfg().adminRoleIds);
-  const isCloser = (member) => hasRole(member, cfg().tickets.closerRoleIds.length ? cfg().tickets.closerRoleIds : cfg().adminRoleIds);
+  // moderation roles (kick/ban/honeypot) · support roles (per category, then general) · purchase admins; each falls back to the moderation roles until set
+  const supportRoles = (cat) => (cat && cat.roleIds && cat.roleIds.length ? cat.roleIds : cfg().tickets.closerRoleIds.length ? cfg().tickets.closerRoleIds : cfg().adminRoleIds);
+  const purchaseRoles = () => (cfg().shop.adminRoleIds.length ? cfg().shop.adminRoleIds : cfg().adminRoleIds);
+  const isPurchaseAdmin = (member) => hasRole(member, purchaseRoles());
   const ephemeral = (content, extra = {}) => ({ content, flags: D.MessageFlags.Ephemeral, ...extra });
   const noMentions = { parse: [] };
 
@@ -88,8 +91,8 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
   // ---- claiming: sellers (one role per payment method) claim orders from a notification channel
   const methodOf = (p) => cfg().shop.methods.find((m) => m.id === p.methodId) || null;
   const claimedBy = (p) => (p.claimedBy ? `<@${p.claimedBy}>` : null);
-  const canHandle = (member, p) => (p.claimChannelId ? !!p.claimedBy && p.claimedBy === member.id : isCloser(member));
-  const handleDenied = (p) => (p.claimChannelId ? (p.claimedBy ? `Only the seller who claimed this ticket (${claimedBy(p)}) can do that.` : 'Claim this ticket first.') : 'Only the configured team roles can do that.');
+  const canHandle = (member, p) => (p.claimChannelId ? (!!p.claimedBy && p.claimedBy === member.id) || isPurchaseAdmin(member) : isPurchaseAdmin(member));
+  const handleDenied = (p) => (p.claimChannelId ? (p.claimedBy ? `Only the seller who claimed this ticket (${claimedBy(p)}) or the purchase admins can do that.` : 'Claim this ticket first.') : 'Only the purchase admins can do that.');
 
   function notifyEmbed(p) {
     const cur = p.currency || cfg().shop.currency;
@@ -214,9 +217,9 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
 
   // ------------------------------------------------------------------ tickets
 
-  async function createTicketChannel(g, user, parentId, extraNames, { closers: withClosers = true } = {}) {
+  async function createTicketChannel(g, user, parentId, extraNames, { roleIds = [] } = {}) {
     const base = { allow: [D.PermissionFlagsBits.ViewChannel, D.PermissionFlagsBits.SendMessages, D.PermissionFlagsBits.ReadMessageHistory, D.PermissionFlagsBits.AttachFiles, D.PermissionFlagsBits.EmbedLinks] };
-    const closers = withClosers ? (cfg().tickets.closerRoleIds.length ? cfg().tickets.closerRoleIds : cfg().adminRoleIds).filter((id) => g.roles.cache.has(id)) : [];
+    const closers = roleIds.filter((id) => g.roles.cache.has(id));
     const parent = parentId && g.channels.cache.get(parentId)?.type === D.ChannelType.GuildCategory ? parentId : undefined;
     return g.channels.create({
       name: ticketChannelName(user.username), type: D.ChannelType.GuildText, parent, topic: `${extraNames} · opened by ${user.tag || user.username} (${user.id})`,
@@ -242,8 +245,9 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
     const open = limitReached(g, interaction.user.id);
     if (open) return interaction.reply(ephemeral(`You already have ${open.length} open ticket${open.length > 1 ? 's' : ''} (limit ${cfg().tickets.limitPerUser}): ${open.map((t) => `<#${t.channelId}>`).join(' ')}`));
     await interaction.deferReply({ flags: D.MessageFlags.Ephemeral });
-    const channel = await createTicketChannel(g, interaction.user, cfg().tickets.categoryId, `Category: ${cat.label}`);
-    data.addTicket({ channelId: channel.id, userId: interaction.user.id, username: interaction.user.username, kind: 'support', category: cat.label });
+    const roleIds = supportRoles(cat);
+    const channel = await createTicketChannel(g, interaction.user, cfg().tickets.categoryId, `Category: ${cat.label}`, { roleIds });
+    data.addTicket({ channelId: channel.id, userId: interaction.user.id, username: interaction.user.username, kind: 'support', category: cat.label, roleIds });
     await channel.send({
       content: `<@${interaction.user.id}>`,
       embeds: [new D.EmbedBuilder().setTitle(`${cat.label} ticket`).setDescription('Thanks for reaching out! Please describe your problem and our team will answer as soon as possible.').setColor(cfg().tickets.color)],
@@ -255,11 +259,17 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
 
   async function closeChannel(channel, delayMs = 5000) {
     data.closeTicket(channel.id);
-    setTimeout(() => channel.delete('Ticket closed').catch(() => {}), delayMs);
+    setTimeout(async () => {
+      try { await channel.delete('Ticket closed'); } catch (e) {
+        log(`Could not delete ticket channel ${channel.id}: ${e.message}`);
+        await channel.send('⚠ I could not delete this channel (the bot needs the “Manage Channels” permission). Please delete it manually.').catch(() => {});
+      }
+    }, delayMs);
   }
 
   async function closeSupportTicket(interaction) {
-    if (!isCloser(interaction.member)) return interaction.reply(ephemeral('Only the configured team roles can close tickets.'));
+    const t = data.ticketByChannel(interaction.channelId);
+    if (!hasRole(interaction.member, t && t.roleIds && t.roleIds.length ? t.roleIds : supportRoles())) return interaction.reply(ephemeral('Only the support roles for this ticket can close it.'));
     await interaction.reply('Ticket will be closed in 5 seconds…');
     await closeChannel(interaction.channel);
   }
@@ -307,7 +317,7 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
     const wantedClaim = method.claimChannelId || shop.claimChannelId;
     const claimChannel = wantedClaim ? await g.channels.fetch(wantedClaim).catch(() => null) : null;
     const claimChannelId = claimChannel && claimChannel.isTextBased() ? claimChannel.id : '';
-    const channel = await createTicketChannel(g, interaction.user, method.categoryId || shop.categoryId || cfg().tickets.categoryId, `Purchase: ${label}`, { closers: !claimChannelId });
+    const channel = await createTicketChannel(g, interaction.user, method.categoryId || shop.categoryId || cfg().tickets.categoryId, `Purchase: ${label}`, { roleIds: claimChannelId ? [] : purchaseRoles() });
     data.addTicket({ channelId: channel.id, userId: interaction.user.id, username: interaction.user.username, kind: 'shop', category: 'Purchase' });
     const p = data.addPurchase({ channelId: channel.id, userId: interaction.user.id, username: interaction.user.username, planId: plan.id, planLabel: label, quantity: qty, unitLabel: plan.label, unitPrice: plan.price, days: plan.days * qty, methodId: method.id, methodLabel: method.label, basePrice: q.base, discountPercent: q.percent, discountLabel: q.discountLabel, total: q.total, currency: shop.currency, claimChannelId });
     const msg = await channel.send({ content: `<@${interaction.user.id}> thanks for your order! ${claimChannelId ? 'A seller will claim your ticket shortly and contact you about the payment.' : 'A team member will contact you about the payment.'}`, embeds: [orderEmbed(p)], components: orderButtons(p), allowedMentions: { users: [interaction.user.id] } });
@@ -362,8 +372,8 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
     if (!p) return interaction.reply(ephemeral('This order no longer exists.'));
     if (p.status !== 'open') return interaction.reply(ephemeral('This order is already finished.'));
     const m = methodOf(p);
-    const allowed = m && m.roleId ? hasRole(interaction.member, [m.roleId]) : isAdmin(interaction.member);
-    if (!allowed) return interaction.reply(ephemeral(`Only ${m && m.roleId ? `<@&${m.roleId}>` : 'the admin roles'} can claim this ticket.`, { allowedMentions: noMentions }));
+    const allowed = (m && m.roleId && hasRole(interaction.member, [m.roleId])) || isPurchaseAdmin(interaction.member);
+    if (!allowed) return interaction.reply(ephemeral(`Only ${m && m.roleId ? `<@&${m.roleId}>` : 'the purchase admins'} can claim this ticket.`, { allowedMentions: noMentions }));
     if (interaction.user.id === p.userId) return interaction.reply(ephemeral('You cannot claim your own order.'));
     if (p.claimedBy) return interaction.reply(ephemeral(`This ticket is already claimed by ${claimedBy(p)}. It can be claimed again once they unclaim it.`, { allowedMentions: noMentions }));
     const ch = await interaction.guild.channels.fetch(p.channelId).catch(() => null);
@@ -381,7 +391,7 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
     const p = data.purchaseByNotify(interaction.message.id) || purchaseOf(interaction);
     if (!p || p.status !== 'open') return interaction.reply(ephemeral('This order is already finished.'));
     if (!p.claimedBy) return interaction.reply(ephemeral('This ticket is not claimed.'));
-    if (interaction.user.id !== p.claimedBy && interaction.guild.ownerId !== interaction.user.id) return interaction.reply(ephemeral(`Only ${claimedBy(p)} can unclaim this ticket.`, { allowedMentions: noMentions }));
+    if (interaction.user.id !== p.claimedBy && interaction.guild.ownerId !== interaction.user.id && !isPurchaseAdmin(interaction.member)) return interaction.reply(ephemeral(`Only ${claimedBy(p)} or the purchase admins can unclaim this ticket.`, { allowedMentions: noMentions }));
     await interaction.deferUpdate();
     const ch = await interaction.guild.channels.fetch(p.channelId).catch(() => null);
     if (ch) {
@@ -426,6 +436,25 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
     return interaction.showModal(new D.ModalBuilder().setCustomId('shop:ratemodal').setTitle('Leave a rating').addComponents(new D.ActionRowBuilder().addComponents(starsInput), new D.ActionRowBuilder().addComponents(feedback)));
   }
 
+  /** A review as a card: stars, buyer, seller, product, price and payment method (plus the feedback when given). */
+  function reviewCard(p, { avatar, feedback, title } = {}) {
+    const n = p.rating, cur = p.currency || cfg().shop.currency;
+    const e = new D.EmbedBuilder().setColor(n >= 4 ? '#22c55e' : n === 3 ? '#f59e0b' : '#ef4444')
+      .setTitle(title || `${stars(n)}  ${n}/5`)
+      .setDescription(`<@${p.userId}> bought something${p.sellerId ? ` from <@${p.sellerId}>` : ''} and left a rating of ${stars(n)} (${n}/5)`)
+      .addFields(
+        { name: '🛒 Buyer', value: `<@${p.userId}>`, inline: true },
+        { name: '🧑‍💼 Seller', value: p.sellerId ? `<@${p.sellerId}>` : '—', inline: true },
+        { name: '⭐ Rating', value: `${stars(n)}${'☆'.repeat(5 - n)}  **${n}/5**`, inline: true },
+        { name: '📦 Product', value: p.planLabel, inline: true },
+        { name: '💶 Price', value: `${cur}${money(p.total)}`, inline: true },
+        { name: '💳 Payment', value: p.methodLabel, inline: true },
+      ).setFooter({ text: `Order ${p.id}` }).setTimestamp(p.ratedAt || Date.now());
+    if (feedback) e.addFields({ name: '💬 Feedback', value: ('>>> ' + feedback).slice(0, 1024) });
+    if (avatar) e.setThumbnail(avatar);
+    return e;
+  }
+
   async function shopRateModal(interaction) {
     const p = purchaseOf(interaction);
     if (!p || p.status !== 'completed' || interaction.user.id !== p.userId) return interaction.reply(ephemeral('There is nothing to rate here.'));
@@ -436,18 +465,20 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
     const done = data.updatePurchase(p.id, { rating: n, feedback, ratedAt: Date.now() });
     const g = interaction.guild, r = cfg().ratings;
     const post = async (channelId, payload) => { const ch = channelId ? await g.channels.fetch(channelId).catch(() => null) : null; if (ch && ch.isTextBased()) await ch.send({ allowedMentions: noMentions, ...payload }).catch((e) => log(`Could not post to ${channelId}: ${e.message}`)); };
-    await post(r.channelId, { content: `<@${done.userId}> bought something${done.sellerId ? ` from <@${done.sellerId}>` : ''} and left a rating of ${stars(n)} (${n}/5)` });
-    if (feedback) await post(r.feedbackChannelId, { embeds: [new D.EmbedBuilder().setTitle('New feedback').setColor('#8b5cf6').setDescription(feedback.slice(0, 1000)).addFields({ name: 'Buyer', value: `<@${done.userId}>`, inline: true }, ...(done.sellerId ? [{ name: 'Seller', value: `<@${done.sellerId}>`, inline: true }] : []), { name: 'Rating', value: `${stars(n)} (${n}/5)`, inline: true }, { name: 'Purchase', value: done.planLabel, inline: true })] });
+    const avatar = interaction.user.displayAvatarURL ? interaction.user.displayAvatarURL() : undefined;
+    await post(r.channelId, { embeds: [reviewCard(done, { avatar })] });
+    if (feedback) await post(r.feedbackChannelId, { embeds: [reviewCard(done, { avatar, feedback, title: 'New feedback' })] });
     const thanks = done.thanksMessageId ? await interaction.channel.messages.fetch(done.thanksMessageId).catch(() => null) : null;
-    if (thanks) await thanks.edit({ components: [new D.ActionRowBuilder().addComponents(new D.ButtonBuilder().setCustomId('shop:close').setLabel('Close ticket').setStyle(D.ButtonStyle.Secondary))] }).catch(() => {});
+    if (thanks) await thanks.edit({ components: [] }).catch(() => {});
     onEvent('purchase_rated', done);
-    return interaction.reply(`Thank you for your rating of ${stars(n)}!`);
+    await interaction.reply(`Thank you for your rating of ${stars(n)}! This ticket will close in 5 seconds…`);
+    await closeChannel(interaction.channel);
   }
 
   async function shopClose(interaction) {
     const p = purchaseOf(interaction);
     if (!p || p.status !== 'completed') return interaction.reply(ephemeral('This ticket cannot be closed here.'));
-    if (interaction.user.id !== p.userId && !isCloser(interaction.member)) return interaction.reply(ephemeral('Only the buyer or the team can close this ticket.'));
+    if (interaction.user.id !== p.userId && interaction.user.id !== p.claimedBy && !isPurchaseAdmin(interaction.member)) return interaction.reply(ephemeral('Only the buyer or the seller can close this ticket.'));
     await interaction.reply('Ticket will be closed in 5 seconds…');
     await closeChannel(interaction.channel);
   }

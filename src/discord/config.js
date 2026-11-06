@@ -31,12 +31,13 @@ const defaults = () => ({
   tickets: {
     channelId: '', title: 'Support', description: 'Pick a category below to open a ticket. Our team will be with you shortly.', color: '#8b5cf6',
     placeholder: 'Select a ticket category…', categoryId: '', limitPerUser: 1, closerRoleIds: [],
-    categories: [{ id: 'support', label: 'Support', description: 'General questions and problems', emoji: '' }],
+    categories: [{ id: 'support', label: 'Support', description: 'General questions and problems', emoji: '', roleIds: [] }],
   },
   shop: {
     channelId: '', title: 'Buy a membership', description: 'Choose how long you want to buy. A ticket will open with your order.', color: '#8b5cf6',
     placeholder: 'Select a duration…', categoryId: '', currency: '€',
     claimChannelId: '',
+    adminRoleIds: [],
     methods: [{ id: 'paypal', label: 'PayPal', description: 'Pay with PayPal', roleId: '', categoryId: '', claimChannelId: '' }],
     plans: [{ id: 'week', label: 'week', description: 'Seven days of access', days: 7, price: 1 }],
     minQuantity: 1, maxQuantity: 52,
@@ -89,7 +90,7 @@ function sanitize(input = {}, prev = defaults()) {
   }
 
   const t = i.tickets || {}, pt = prev.tickets;
-  const cats = t.categories === undefined ? pt.categories : unique(list(t.categories, 25).map((c) => ({ id: slug(c.id), label: text(c.label, 80), description: text(c.description, 100), emoji: text(c.emoji, 64) })).filter((c) => c.label));
+  const cats = t.categories === undefined ? pt.categories : unique(list(t.categories, 25).map((c) => ({ id: slug(c.id), label: text(c.label, 80), description: text(c.description, 100), emoji: text(c.emoji, 64), roleIds: snowList(c.roleIds, 25) })).filter((c) => c.label));
   if (!cats.length) throw new Error('Add at least one ticket category.');
   out.tickets = {
     channelId: t.channelId === undefined ? pt.channelId : snow(t.channelId), title: t.title === undefined ? pt.title : text(t.title, 100, 'Support'),
@@ -112,6 +113,7 @@ function sanitize(input = {}, prev = defaults()) {
     description: s.description === undefined ? ps.description : text(s.description, 2000), color: s.color === undefined ? ps.color : color(s.color),
     placeholder: s.placeholder === undefined ? ps.placeholder : text(s.placeholder, 100, 'Select a duration…'), categoryId: s.categoryId === undefined ? ps.categoryId : snow(s.categoryId),
     claimChannelId: s.claimChannelId === undefined ? (ps.claimChannelId || '') : snow(s.claimChannelId),
+    adminRoleIds: s.adminRoleIds === undefined ? (ps.adminRoleIds || []) : snowList(s.adminRoleIds, 25),
     currency: s.currency === undefined ? ps.currency : text(s.currency, 4, '€'), methods, plans, discounts,
     minQuantity: s.minQuantity === undefined ? (ps.minQuantity || 1) : Math.round(num(s.minQuantity, 1, 1000, 1)),
     maxQuantity: s.maxQuantity === undefined ? (ps.maxQuantity || 52) : Math.round(num(s.maxQuantity, 1, 1000, 52)),
