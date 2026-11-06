@@ -80,9 +80,6 @@
       const m = el('div', 'meter' + (u.botCount >= u.botLimit ? ' low' : ''));
       const i = el('i'); i.style.width = (u.botLimit ? Math.min(100, (u.botCount / u.botLimit) * 100) : 100) + '%'; m.append(i); c.append(m);
     }
-    const tags = el('div', 'bot-tags');
-    for (const b of (u.bots || [])) tags.append(el('span', 'chip plain', b.accountName || b.name));
-    if (tags.childElementCount) c.append(tags);
 
     const ms = membershipLine(u);
     const msEl = el('div', 'hint', ms.text);
@@ -95,7 +92,6 @@
       btn('Edit', 'sm', () => edit(u));
       if (u.expiresAt) btn('＋ Add time', 'sm', () => addTime(u));
     }
-    if (u.can.viewAs) btn('View as user', 'ghost sm', () => window.dispatchEvent(new CustomEvent('dashboard:view-as', { detail: { userId: u.id, username: u.username } })));
     if (u.can.remove) btn('Delete', 'danger sm', () => remove(u));
     if (actions.childElementCount) c.append(actions);
     return c;
@@ -132,7 +128,7 @@
   }
 
   async function remove(u) {
-    const n = (u.bots || []).length;
+    const n = u.botCount || 0;
     const r = await ask({ title: `Delete ${u.username}?`, text: n ? `Their ${n} connected Minecraft account${n === 1 ? ' is' : 's are'} disconnected and removed as well. This cannot be undone.` : 'This cannot be undone.', ok: 'Delete account', danger: true });
     if (!r) return;
     try { await api('/api/admin/users/' + encodeURIComponent(u.id), { method: 'DELETE' }); toast('Account deleted'); await loadUsers(); }

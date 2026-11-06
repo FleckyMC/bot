@@ -500,11 +500,11 @@ class BotManager extends EventEmitter {
 
   // ------------------------------------------------------------ Start / Stop
 
-  start() {
+  start(filter = (w) => this.isShared(w)) {
     if (!this.area) throw new Error('Please save an area (Pos 1 / Pos 2) first');
-    if (![...this.workers.values()].some((w) => this.isShared(w))) throw new Error('No bots connected');
+    const workers = [...this.workers.values()].filter((w) => filter(w));
+    if (!workers.length) throw new Error('No bots connected');
     const area = planner.normalizeArea(this.area.p1, this.area.p2);
-    const workers = [...this.workers.values()].filter((w) => this.isShared(w));
     const parts = planner.split(area, workers.length);
     this.mining = true;
     workers.forEach((w, i) => {

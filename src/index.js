@@ -70,7 +70,7 @@ const discordBot = createDiscordBot({
 const isAdmin = perms.isStaff; // admin or founder
 // Bots connected by a regular user belong to that user. Bots of admins/the founder (or unassigned ones) are shared.
 const ownerOf = (w) => auth.getUsers().find((u) => Array.isArray(u.botNames) && u.botNames.includes(w.name)) || null;
-manager.isShared = (w) => { const o = ownerOf(w); return !o || o.role !== 'user'; };
+manager.isShared = () => true; // mining only ever touches the bots of the person who starts it (see actions.start)
 manager.on('account_added', ({ name, ownerId }) => { if (ownerId) auth.addOwnedBot(ownerId, name); });
 manager.on('bot_removed', ({ name }) => auth.removeOwnedBots([name]));
 const ownedNames = (user) => (Array.isArray(user.botNames) ? user.botNames.filter((n) => manager.workers.has(n)) : []);
@@ -203,8 +203,7 @@ app.get('/api/admin/users', staffOnly, (req, res) => {
     users: auth.getUsers().filter((u) => perms.canSee(actor, u)).map((u) => ({
       ...auth.publicUser(u),
       botCount: usedSlots(u),
-      bots: ownedNames(u).map((n) => ({ name: n, accountName: manager.workers.get(n).accountName || manager.accountNames[n] || '' })),
-      can: { manage: perms.canManage(actor, u), remove: perms.canDelete(actor, u), viewAs: perms.canViewAs(actor, u) },
+      can: { manage: perms.canManage(actor, u), remove: perms.canDelete(actor, u) },
     })),
   });
 });
@@ -365,16 +364,21 @@ io.use((socket, next) => {
 });
 
 const actions = {
-  connect_bots: (p) => manager.connect(p || {}),
+  connect_bots: () => { throw new Error('Connect your accounts from the Bots tab.'); },
   connect_selected: (p, user) => manager.connectSelected(p || {}, { restrictInternal: !isAdmin(user) }),
   disconnect_selected: (p) => manager.disconnectSelected(p && p.names),
-  disconnect_bots: () => manager.disconnect(),
+  disconnect_bots: (p, user) => manager.disconnectSelected([...manager.workers.values()].filter((w) => owned(w.name, user)).map((w) => w.name)),
   set_area: (p) => manager.setArea(p && p.p1, p && p.p2),
   set_settings: (p) => manager.setSettings(p || {}),
   set_version: (p) => manager.setVersion(p && p.version),
-  start: () => manager.start(),
+  start: (p, user) => manager.start((w) => owned(w.name, user)),
   stop: () => manager.stop(),
-  chat: (p) => manager.sendChat(p && p.target, p && p.text),
+  chat: async (p, user) => {
+    if (p && p.target && p.target !== 'all') return manager.sendChat(p.target, p.text);
+    const mine = [...manager.workers.values()].filter((w) => owned(w.name, user) && w.bot && w.spawned);
+    if (!mine.length) throw new Error('None of your accounts is connected.');
+    for (const w of mine) await manager.sendChat(w.name, p && p.text);
+  },
   bot_profile: (p) => manager.setBotProfile(p && p.name, p && p.profile, p && p.options || {}),
   add_bot: (p, user) => {
     if (!isAdmin(user)) {
@@ -395,8 +399,12 @@ const actions = {
   clear_logs: () => { manager.logs.length = 0; for (const client of io.sockets.sockets.values()) client.emit('logs_cleared'); },
 };
 
+// Microsoft accounts are private: everyone (admins and the founder included) only sees and controls the ones they connected.
+// Legacy accounts without an owner belong to the founder.
+const ownerRecordOf = (name) => auth.getUsers().find((u) => Array.isArray(u.botNames) && u.botNames.includes(name)) || null;
+const staffOwns = (name, user) => { const rec = ownerRecordOf(name); return rec ? rec.id === user.id : perms.isFounder(user); };
 const owned = (name, user) => {
-  if (isAdmin(user)) return true;
+  if (isAdmin(user)) return staffOwns(name, user);
   const assigned = Array.isArray(user && user.botNames) ? new Set(user.botNames.map((n) => String(n).toLowerCase())) : new Set();
   const worker = manager.workers.get(name);
   const profileName = worker && worker.accountName || manager.accountNames[name];
@@ -409,11 +417,9 @@ const snapshotFor = (user) => {
   snap.me = { id: user.id, username: user.username, role: user.role };
   snap.limits = { used: usedSlots(user), limit: user.botLimit || 0, unlimited: admin };
   if (admin) {
-    const everyone = auth.getUsers();
-    snap.bots = snap.bots.map((b) => {
-      const o = everyone.find((u) => Array.isArray(u.botNames) && u.botNames.includes(b.name));
-      return { ...b, owner: o ? (o.role === 'founder' && !perms.isFounder(user) ? 'Founder' : o.username) : null };
-    });
+    snap.bots = snap.bots.filter((b) => staffOwns(b.name, user)).map((b) => ({ ...b, owner: user.username }));
+    snap.names = snap.bots.map((b) => b.name);
+    snap.pendingSignIns = (snap.pendingSignIns || []).filter((x) => x.ownerId === user.id || (!x.ownerId && perms.isFounder(user)));
     return snap;
   }
   snap.bots = snap.bots.filter((b) => owned(b.name, user));
@@ -425,7 +431,7 @@ const snapshotFor = (user) => {
 io.on('connection', (socket) => {
   const originalUser = () => userForSocket(socket);
   const currentUser = () => { const original = originalUser(); const target = viewAsBySocket.get(socket.id); return isAdmin(original) && target ? auth.getUsers().find((u) => u.id === target) || original : original; };
-  socket.emit('init', { state: snapshotFor(currentUser()), logs: isAdmin(currentUser()) ? manager.logs.slice(-200) : [] });
+  socket.emit('init', { state: snapshotFor(currentUser()), logs: manager.logs.filter((l) => (l.source === 'system' ? isAdmin(currentUser()) : owned(l.source, currentUser()))).slice(-200) });
   socket.on('action', async (type, payload, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     const user = currentUser();
@@ -435,15 +441,7 @@ io.on('connection', (socket) => {
       socket.disconnect(true);
       return;
     }
-    if (type === 'view_as') {
-      if (!isAdmin(original)) return reply({ ok: false, error: 'Admin only' });
-      const target = auth.getUsers().find((u) => u.id === String(payload && payload.userId || ''));
-      if (!target || !perms.canViewAs(original, target)) return reply({ ok: false, error: 'Account not found' });
-      viewAsBySocket.set(socket.id, target.id);
-      socket.emit('view_as_changed', { active: true, username: target.username });
-      socket.emit('state', snapshotFor(target));
-      return reply({ ok: true });
-    }
+    if (type === 'view_as') return reply({ ok: false, error: 'Viewing other accounts is not available.' });
     if (type === 'exit_view_as') {
       if (!isAdmin(original)) return reply({ ok: false, error: 'Admin only' });
       viewAsBySocket.delete(socket.id);
@@ -451,12 +449,9 @@ io.on('connection', (socket) => {
       socket.emit('state', snapshotFor(original));
       return reply({ ok: true });
     }
-    if (type === 'stop' && !isAdmin(user)) {
+    if (type === 'stop') {
       try {
-        const assigned = Array.isArray(user && user.botNames) ? new Set(user.botNames.map((n) => String(n).toLowerCase())) : new Set();
-        const internalNames = [...manager.workers.values()]
-          .filter((w) => assigned.has(String(w.name).toLowerCase()) || assigned.has(String(w.accountName || manager.accountNames[w.name] || '').toLowerCase()))
-          .map((w) => w.name);
+        const internalNames = [...manager.workers.values()].filter((w) => owned(w.name, user)).map((w) => w.name);
         manager.stopBots(internalNames);
         reply({ ok: true });
       } catch (e) {
@@ -468,6 +463,11 @@ io.on('connection', (socket) => {
     if (!fn) return reply({ ok: false, error: 'Unknown action' });
     try {
       authorizeAction(user, type, payload, owned);
+      if (isAdmin(user)) {
+        // admins and the founder control only their own Microsoft accounts, like everybody else
+        const names = [payload && payload.name, payload && payload.target !== 'all' ? payload.target : null, ...(Array.isArray(payload && payload.names) ? payload.names : [])].filter((n) => typeof n === 'string' && n);
+        if (names.some((n) => !owned(n, user))) throw new Error('That Microsoft account does not belong to you.');
+      }
       await fn(payload, user);
       reply({ ok: true });
     } catch (e) {
@@ -487,7 +487,7 @@ const liveUser = (socket) => {
 manager.on('log', (entry) => {
   for (const socket of io.sockets.sockets.values()) {
     const who = liveUser(socket);
-    if (who && (isAdmin(who.effective) || owned(entry.source, who.effective))) socket.emit('log', entry);
+    if (who && (entry.source === 'system' ? isAdmin(who.effective) : owned(entry.source, who.effective))) socket.emit('log', entry);
   }
 });
 const broadcastState = () => {
