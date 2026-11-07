@@ -282,6 +282,24 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
     if (!plan) return interaction.reply(ephemeral('That option no longer exists.'));
     const open = limitReached(interaction.guild, interaction.user.id);
     if (open) return interaction.reply(ephemeral(`You already have ${open.length} open ticket${open.length > 1 ? 's' : ''} (limit ${cfg().tickets.limitPerUser}): ${open.map((t) => `<#${t.channelId}>`).join(' ')}`));
+    const tos = cfg().shop.tos;
+    if (tos && tos.enabled) {
+      const embed = new D.EmbedBuilder().setTitle(tos.title).setDescription(tos.text).setColor(cfg().shop.color);
+      const btn = new D.ButtonBuilder().setCustomId(`shop:tos:${plan.id}`).setLabel(tos.buttonLabel.slice(0, 80)).setStyle(D.ButtonStyle.Success);
+      return interaction.reply({ embeds: [embed], components: [new D.ActionRowBuilder().addComponents(btn)], flags: D.MessageFlags.Ephemeral });
+    }
+    return showQuantityModal(interaction, plan);
+  }
+
+  async function shopAcceptTos(interaction) {
+    const plan = cfg().shop.plans.find((p) => p.id === interaction.customId.split(':')[2]);
+    if (!plan) return interaction.reply(ephemeral('That option no longer exists.'));
+    const open = limitReached(interaction.guild, interaction.user.id);
+    if (open) return interaction.reply(ephemeral(`You already have ${open.length} open ticket${open.length > 1 ? 's' : ''} (limit ${cfg().tickets.limitPerUser}): ${open.map((t) => `<#${t.channelId}>`).join(' ')}`));
+    return showQuantityModal(interaction, plan);
+  }
+
+  function showQuantityModal(interaction, plan) {
     const { minQuantity: lo, maxQuantity: hi } = cfg().shop;
     const input = new D.TextInputBuilder().setCustomId('qty').setLabel(`How many ${plan.label}s? (${lo}-${hi})`.slice(0, 45)).setStyle(D.TextInputStyle.Short).setRequired(true).setMaxLength(4).setPlaceholder(String(lo));
     return interaction.showModal(new D.ModalBuilder().setCustomId(`shop:qty:${plan.id}`).setTitle(`Buy by the ${plan.label}`.slice(0, 45)).addComponents(new D.ActionRowBuilder().addComponents(input)));
@@ -605,6 +623,7 @@ function createDiscordBot({ founder, config, data, log = () => {}, onEvent = () 
         if (id.startsWith('shop:pay:')) return await shopPickMethod(interaction);
       } else if (interaction.isButton()) {
         if (id === 'tk:close') return await closeSupportTicket(interaction);
+        if (id.startsWith('shop:tos:')) return await shopAcceptTos(interaction);
         if (id === 'shop:complete') return await shopComplete(interaction);
         if (id === 'shop:cancel') return await shopCancel(interaction);
         if (id === 'shop:claim') return await shopClaim(interaction);

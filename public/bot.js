@@ -191,6 +191,11 @@
       text(s, 'description', 'Panel description', { multiline: true, maxLength: 2000 }),
       el('b', '', 'Payment methods & sellers'),
       note('Each payment method can have its own seller role, ticket category and claim channel. When someone buys with it, the seller role is pinged in the claim channel and a seller claims the ticket. Only the claimer is added to the ticket – neither the seller role nor the admin roles can see it. Without a claim channel, the admin roles see the ticket as usual.'),
+      el('b', '', 'Terms of Service'),
+      note('Before the amount is asked, the buyer sees this message and must click the button to continue. Nobody can open a purchase ticket without accepting.'),
+      check(s.tos, 'enabled', 'Require TOS acceptance for every purchase ticket'),
+      grid('two', text(s.tos, 'title', 'Title', { maxLength: 100 }), text(s.tos, 'buttonLabel', 'Button text', { maxLength: 80 })),
+      text(s.tos, 'text', 'TOS text (add your rules / link)', { multiline: true, maxLength: 3000 }),
       roleMulti(s, 'adminRoleIds', 'Purchase admins', 'These roles can claim any ticket, unclaim other sellers\' tickets and complete or cancel purchases. They are not added to tickets automatically. Empty = the moderation roles.'),
       channel(s, 'claimChannelId', 'Default claim channel', 'textChannels', 'Used by every payment method that has no claim channel of its own. Only sellers should be able to see it.'),
       listEditor(s.methods, () => ({ id: uid(), label: '', description: '', roleId: '', categoryId: '', claimChannelId: '' }), (m) => [

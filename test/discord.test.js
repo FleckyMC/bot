@@ -356,7 +356,12 @@ test('shop: the buyer enters the amount and the total is amount × price per uni
   // choosing the unit opens a modal asking how many
   const pick = w.select(buyer, 'shop:plan', ['week']);
   await w.handle(pick);
-  assert.match(pick.modal.toJSON().components[0].components[0].label, /How many weeks/);
+  // the TOS must be accepted first
+  assert.ok(!pick.modal);
+  assert.equal(pick.replies[0].components[0].toJSON().components[0].custom_id, 'shop:tos:week');
+  const acc = w.button(buyer, 'shop:tos:week');
+  await w.handle(acc);
+  assert.match(acc.modal.toJSON().components[0].components[0].label, /How many weeks/);
   for (const bad of ['0', '99', 'abc', '2.5', '']) {
     const m = w.modal(buyer, 'shop:qty:week', null, { qty: bad });
     await w.handle(m);
