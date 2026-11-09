@@ -374,3 +374,17 @@ test('isTransientError erkennt vorübergehende Verbindungsfehler', () => {
   assert.equal(isTransientError('socketClosed'), true);
   assert.equal(isTransientError(new Error('Invalid credentials')), false);
 });
+
+test('log: zeigt Minecraft-Namen statt MicrosoftAccountN und merkt sich die betroffenen Bots', () => {
+  const os = require('node:os'), fs = require('node:fs'), path = require('node:path');
+  const { BotManager } = require('../src/botManager');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mlog-'));
+  const m = new BotManager({ dataDir: dir });
+  m.accountNames.MicrosoftAccount1 = 'dankersalt';
+  m.log('MicrosoftAccount1', 'Error: Failed to obtain profile data for MicrosoftAccount1', 'error');
+  assert.match(m.logs.at(-1).text, /for dankersalt$/);
+  m.log('system', 'Connecting 1 selected bot(s) to x', 'info', { bots: ['MicrosoftAccount1'] });
+  assert.deepEqual(m.logs.at(-1).bots, ['MicrosoftAccount1']);
+  m.log('system', 'Starting sign-in', 'info', { ownerId: 'u1' });
+  assert.equal(m.logs.at(-1).ownerId, 'u1');
+});

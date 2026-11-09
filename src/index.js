@@ -467,7 +467,7 @@ const snapshotFor = (user) => {
 io.on('connection', (socket) => {
   const originalUser = () => userForSocket(socket);
   const currentUser = () => { const original = originalUser(); const target = viewAsBySocket.get(socket.id); return isAdmin(original) && target ? auth.getUsers().find((u) => u.id === target) || original : original; };
-  socket.emit('init', { state: snapshotFor(currentUser()), logs: manager.logs.filter((l) => (l.source === 'system' ? isAdmin(currentUser()) : owned(l.source, currentUser()))).slice(-200) });
+  socket.emit('init', { state: snapshotFor(currentUser()), logs: manager.logs.filter((l) => canSeeLog(l, currentUser())).slice(-200) });
   socket.on('action', async (type, payload, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     const user = currentUser();
@@ -520,10 +520,16 @@ const liveUser = (socket) => {
   const viewing = isAdmin(original) && viewAsBySocket.has(socket.id) ? auth.getUsers().find((x) => x.id === viewAsBySocket.get(socket.id)) : null;
   return { original, effective: viewing || original };
 };
+// A log line is shown to: the account it names (ownerId), the owners of the bots it names (bots), the owner of its source bot, or - for plain system lines - every admin.
+const canSeeLog = (entry, user) => {
+  if (entry.ownerId) return entry.ownerId === user.id;
+  if (entry.bots) return entry.bots.some((n) => owned(n, user));
+  return entry.source === 'system' ? isAdmin(user) : owned(entry.source, user);
+};
 manager.on('log', (entry) => {
   for (const socket of io.sockets.sockets.values()) {
     const who = liveUser(socket);
-    if (who && (entry.source === 'system' ? isAdmin(who.effective) : owned(entry.source, who.effective))) socket.emit('log', entry);
+    if (who && canSeeLog(entry, who.effective)) socket.emit('log', entry);
   }
 });
 const broadcastState = () => {

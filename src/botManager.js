@@ -110,7 +110,8 @@ class BotManager extends EventEmitter {
     } catch (e) { this.log('system', `Could not save the configuration: ${e.message}`, 'warn'); }
   }
 
-  log(source, text, level = 'info') {
+  // extra.bots: only the owners of these bots see the line; extra.ownerId: only that account sees it.
+  log(source, text, level = 'info', extra = {}) {
     // Chat sehen alle Bots: gleiche Zeile innerhalb von 1,5 s nur einmal anzeigen
     if (level === 'chat') {
       const now = Date.now();
@@ -120,7 +121,12 @@ class BotManager extends EventEmitter {
       this.recentChat.set(text, now);
       if (this.recentChat.size > 200) for (const [k, t] of this.recentChat) if (now - t > 5000) this.recentChat.delete(k);
     }
-    const entry = { t: Date.now(), source, text: String(text).slice(0, 500), level };
+    // Show the Minecraft name instead of the internal "MicrosoftAccountN" id.
+    let shown = String(text);
+    for (const [id, mc] of Object.entries(this.accountNames || {})) if (mc && id !== mc && shown.includes(id)) shown = shown.split(id).join(mc);
+    const entry = { t: Date.now(), source, text: shown.slice(0, 500), level };
+    if (Array.isArray(extra.bots)) entry.bots = extra.bots.map(String);
+    if (extra.ownerId) entry.ownerId = extra.ownerId;
     this.logs.push(entry);
     if (this.logs.length > 500) this.logs.shift();
     this.emit('log', entry);
@@ -199,7 +205,7 @@ class BotManager extends EventEmitter {
     this.names = names;
     this.save();
 
-    this.log('system', `Connecting ${names.length} bot(s) to ${host}${port ? ':' + port : ''} (version ${this.version}, ${auth})`, 'info');
+    this.log('system', `Connecting ${names.length} bot(s) to ${host}${port ? ':' + port : ''} (version ${this.version}, ${auth})`, 'info', { bots: names });
     names.forEach((n) => { const w = new BotWorker(this, n); w.authMethod = auth; this.workers.set(n, w); });
     // Verbindungen gestaffelt aufbauen, viele Server drosseln schnelle Logins
     const delay = auth === 'microsoft' ? 1500 : 5000;
@@ -227,7 +233,7 @@ class BotManager extends EventEmitter {
     this.pendingAccounts.delete(pending.name);
     this.clearMsa(pending.name);
     this.forgetProfile(pending.profileDir);
-    this.log('system', 'Microsoft sign-in cancelled', 'info');
+    this.log('system', 'Microsoft sign-in cancelled', 'info', { ownerId: pending.ownerId });
     this.touch();
   }
 
@@ -251,7 +257,7 @@ class BotManager extends EventEmitter {
     const profileDir = path.join(this.dataDir, 'profiles', `${safe}-${Date.now()}`);
     const pending = { name, profileDir, ownerId, detail: 'Microsoft sign-in in progress' };
     this.pendingAccounts.set(name, pending);
-    this.log('system', 'Starting Microsoft account sign-in. No Minecraft server connection will be started.', 'info');
+    this.log('system', 'Starting Microsoft account sign-in. No Minecraft server connection will be started.', 'info', { ownerId });
     this.touch();
 
     (async () => {
@@ -326,7 +332,7 @@ class BotManager extends EventEmitter {
       }, delay);
       delay += 1500;
     }
-    this.log('system', `Connecting ${selected.length} selected bot(s) to ${host}${port ? ':' + port : ''}`, 'info');
+    this.log('system', `Connecting ${selected.length} selected bot(s) to ${host}${port ? ':' + port : ''}`, 'info', { bots: selected });
     this.touch();
   }
 
@@ -334,6 +340,7 @@ class BotManager extends EventEmitter {
     const selected = [...new Set((Array.isArray(names) ? names : []).map(String))];
     if (!selected.length) throw new Error('Select at least one bot to disconnect.');
     let disconnected = 0;
+    const done = [];
     for (const name of selected) {
       const w = this.workers.get(name);
       if (!w) continue;
@@ -341,10 +348,10 @@ class BotManager extends EventEmitter {
       w.disconnect();
       w.status = 'offline';
       w.detail = 'Disconnected. Select this bot to connect again.';
-      disconnected++;
+      disconnected++; done.push(name);
     }
     if (!disconnected) throw new Error('No selected bots were found.');
-    this.log('system', `Disconnected ${disconnected} selected bot(s)`, 'info');
+    this.log('system', `Disconnected ${disconnected} selected bot(s)`, 'info', { bots: done });
     this.touch();
   }
 
@@ -363,7 +370,7 @@ class BotManager extends EventEmitter {
     this.save();
     this.forgetProfile(profileDir);
     this.emit('bot_removed', { name: w.name, accountName });
-    this.log('system', `Bot ${w.name} removed`, 'info');
+    this.log('system', `Bot ${w.name} removed`, 'info', { bots: [w.name] });
     this.touch();
   }
 
@@ -520,7 +527,7 @@ class BotManager extends EventEmitter {
       if (w.bot && w.spawned) w.startJob();
       else w.setStatus(w.status, 'Starts after connecting');
     });
-    this.log('system', `Start: ${workers.length} bot(s) are mining ${planner.volume(area)} blocks`, 'info');
+    this.log('system', `Start: ${workers.length} bot(s) are mining ${planner.volume(area)} blocks`, 'info', { bots: workers.map((w) => w.name) });
     this.touch();
   }
 
