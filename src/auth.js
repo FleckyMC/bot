@@ -10,10 +10,12 @@ const MAX_DAYS = 3650;
 const USERNAME_RE = /^[A-Za-z0-9_.-]{3,32}$/;
 
 let usersFile = null;
-const sessions = new Map();
+let sessionsFile = null;
+const sessions = new Map(); // key: sha256(token) – the file never contains a usable cookie value
 const attempts = new Map();
 
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest();
+const tokenKey = (token) => crypto.createHash('sha256').update(String(token)).digest('hex');
 const safeEqual = (a, b) => crypto.timingSafeEqual(sha(a), sha(b));
 
 function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
@@ -28,13 +30,63 @@ function verifyPassword(password, entry) {
 
 // ---------------------------------------------------------------- storage
 
+function loadSessions() {
+  sessions.clear();
+  if (!sessionsFile) return;
+  try {
+    const raw = JSON.parse(fs.readFileSync(sessionsFile, 'utf8')) || {};
+    const now = Date.now();
+    for (const [key, s] of Object.entries(raw)) if (s && s.userId && s.expiresAt > now) sessions.set(key, { userId: s.userId, expiresAt: s.expiresAt });
+  } catch { /* first start or unreadable file: nobody is signed in */ }
+}
+let sessionTimer = null;
+function saveSessions() {
+  if (!sessionsFile || sessionTimer) return;
+  sessionTimer = setTimeout(() => {
+    sessionTimer = null;
+    try {
+      const tmp = sessionsFile + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries(sessions)), { mode: 0o600 });
+      fs.renameSync(tmp, sessionsFile);
+    } catch { /* sessions then simply do not survive a restart */ }
+  }, 200);
+  if (sessionTimer.unref) sessionTimer.unref();
+}
+
 function readData() {
   let data = {};
   try { data = JSON.parse(fs.readFileSync(usersFile, 'utf8')) || {}; } catch { /* first start */ }
   if (!Array.isArray(data.users)) data.users = [];
   if (!Array.isArray(data.seedsRemoved)) data.seedsRemoved = [];
+  for (const u of data.users) normalizeSlots(u);
   return data;
 }
+/**
+ * A regular user owns "slots" – one per Microsoft account they may connect. Each slot has its own end date
+ * (null = permanent). The n-th bot of the user sits in the n-th slot. Older accounts only had a limit and one
+ * membership date; that is turned into the same number of slots with that date.
+ */
+function normalizeSlots(u) {
+  if (u.role !== 'user') return u;
+  if (!Array.isArray(u.slots)) u.slots = Array.from({ length: Number(u.botLimit) || 0 }, () => ({ expiresAt: u.expiresAt || null }));
+  u.slots = u.slots.map((s) => ({ expiresAt: s && s.expiresAt ? Number(s.expiresAt) : null }));
+  u.botLimit = u.slots.length;
+  return u;
+}
+/** The account ends when its last slot ends (permanent if any slot is permanent). Without slots the old date stays. */
+function syncExpiry(u) {
+  if (u.role !== 'user' || !u.slots.length) return;
+  u.botLimit = u.slots.length;
+  u.expiresAt = u.slots.some((s) => !s.expiresAt) ? null : Math.max(...u.slots.map((s) => s.expiresAt));
+  if (accountState(u) === 'active') delete u.expiredHandled;
+}
+const slotDays = (days) => {
+  if (days === null || days === undefined || days === '') return null;
+  const n = Number(days);
+  if (!Number.isInteger(n) || n < 1 || n > MAX_DAYS) throw new Error(`Days must be a whole number between 1 and ${MAX_DAYS}.`);
+  return Date.now() + n * 86400000;
+};
+
 function writeData(data) {
   const tmp = usersFile + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { mode: 0o600 });
@@ -51,7 +103,9 @@ function saveUsers(users) { const data = readData(); data.users = users; writeDa
  */
 function configure(file, founderUser, founderPassword, opts = {}) {
   usersFile = file;
+  sessionsFile = path.join(path.dirname(file), 'sessions.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
+  loadSessions();
   const data = readData();
   const lower = (s) => String(s || '').toLowerCase();
 
@@ -103,6 +157,7 @@ function publicUser(u, now = Date.now()) {
     id: u.id, username: u.username, role: u.role, createdAt: u.createdAt,
     expiresAt: u.expiresAt || null, state, graceEndsAt: state === 'grace' ? u.expiresAt + GRACE_MS : null,
     botLimit: u.botLimit || 0, botNames: Array.isArray(u.botNames) ? u.botNames : [],
+    slots: u.role === 'user' ? normalizeSlots(u).slots.map((s, i) => ({ expiresAt: s.expiresAt, bot: (u.botNames || [])[i] || null })) : [],
     discord: u.discord ? { id: u.discord.id, username: u.discord.username, linkedAt: u.discord.linkedAt || null } : null,
   };
 }
@@ -120,7 +175,7 @@ function parseUsername(value) {
 }
 const nameTaken = (users, username, exceptId) => users.some((u) => u.id !== exceptId && u.username.toLowerCase() === username.toLowerCase());
 
-function createUser({ username, password, role = 'user', expiresAt = null, botLimit = 0, botNames = [] }) {
+function createUser({ username, password, role = 'user', expiresAt = null, botLimit = 0, botNames = [], slots = null }) {
   username = parseUsername(username);
   if (String(password || '').length < 10) throw new Error('Password must contain at least 10 characters.');
   const data = readData();
@@ -129,6 +184,10 @@ function createUser({ username, password, role = 'user', expiresAt = null, botLi
   const assigned = Array.isArray(botNames) ? [...new Set(botNames.map(String).map((x) => x.trim()).filter(Boolean))] : [];
   const finalRole = role === 'admin' ? 'admin' : 'user';
   const user = { id: crypto.randomUUID(), username, role: finalRole, ...hashPassword(password), createdAt: Date.now(), expiresAt: expiresAt ? Number(expiresAt) : null, botLimit: limit, botNames: assigned };
+  if (finalRole === 'user') {
+    user.slots = Array.isArray(slots) ? slots.map((s) => ({ expiresAt: s && s.expiresAt ? Number(s.expiresAt) : null })) : Array.from({ length: limit }, () => ({ expiresAt: user.expiresAt }));
+    normalizeSlots(user); syncExpiry(user);
+  }
   data.users.push(user);
   data.seedsRemoved = data.seedsRemoved.filter((n) => n !== username.toLowerCase());
   writeData(data);
@@ -140,9 +199,19 @@ function updateUser(id, patch = {}) {
   if (!u) throw new Error('User not found.');
   if (patch.expiresAt !== undefined) {
     u.expiresAt = patch.expiresAt === null || patch.expiresAt === '' ? null : Number(patch.expiresAt);
+    if (u.role === 'user') for (const s of u.slots) s.expiresAt = u.expiresAt;
     if (accountState(u) === 'active') delete u.expiredHandled;
   }
-  if (patch.botLimit !== undefined) u.botLimit = parseBotLimit(patch.botLimit);
+  if (patch.botLimit !== undefined) {
+    const limit = parseBotLimit(patch.botLimit);
+    if (u.role === 'user') {
+      const last = u.slots.length ? u.slots[u.slots.length - 1].expiresAt : u.expiresAt || null;
+      u.slots = u.slots.slice(0, limit);
+      while (u.slots.length < limit) u.slots.push({ expiresAt: last });
+      syncExpiry(u);
+    }
+    u.botLimit = limit;
+  }
   if (patch.botNames !== undefined) u.botNames = Array.isArray(patch.botNames) ? [...new Set(patch.botNames.map(String).map((x) => x.trim()).filter(Boolean))] : [];
   saveUsers(users);
   return publicUser(u);
@@ -169,9 +238,94 @@ function addTime(id, days) {
   const wasState = accountState(u);
   const base = Math.max(u.expiresAt, Date.now());
   u.expiresAt = base + n * 86400000;
+  if (u.role === 'user') for (const s of u.slots) if (s.expiresAt) s.expiresAt = Math.max(s.expiresAt, Date.now()) + n * 86400000;
   delete u.expiredHandled;
   saveUsers(users);
   return { user: publicUser(u), wasState };
+}
+
+// ---------------------------------------------------------------- slots
+
+const slotOf = (users, id, index) => {
+  const u = users.find((x) => x.id === id);
+  if (!u) throw new Error('User not found.');
+  if (u.role !== 'user') throw new Error('Only regular accounts have Microsoft account slots.');
+  const i = Number(index);
+  return { u, i, slot: Number.isInteger(i) ? u.slots[i] : undefined };
+};
+/** Adds one slot that ends in `days` days (empty = permanent). Also wakes up a locked account. */
+function addSlot(id, days) {
+  const users = getUsers();
+  const u = users.find((x) => x.id === id);
+  if (!u) throw new Error('User not found.');
+  if (u.role !== 'user') throw new Error('Only regular accounts have Microsoft account slots.');
+  if (u.slots.length >= MAX_BOT_LIMIT) throw new Error(`An account can have at most ${MAX_BOT_LIMIT} slots.`);
+  const wasState = accountState(u);
+  u.slots.push({ expiresAt: slotDays(days) });
+  syncExpiry(u);
+  saveUsers(users);
+  return { user: publicUser(u), wasState };
+}
+/** Sets the end of one slot to `days` days from now (empty = permanent). */
+function setSlotExpiry(id, index, days) {
+  const users = getUsers();
+  const { u, slot } = slotOf(users, id, index);
+  if (!slot) throw new Error('Slot not found.');
+  slot.expiresAt = slotDays(days);
+  syncExpiry(u);
+  saveUsers(users);
+  return publicUser(u);
+}
+/** Adds days to the end of one slot. An ended slot cannot exist (it is removed), a permanent one has nothing to add. */
+function addSlotTime(id, index, days) {
+  const n = Number(days);
+  if (!Number.isInteger(n) || n < 1 || n > MAX_DAYS) throw new Error(`Days must be a whole number between 1 and ${MAX_DAYS}.`);
+  const users = getUsers();
+  const { u, slot } = slotOf(users, id, index);
+  if (!slot) throw new Error('Slot not found.');
+  if (!slot.expiresAt) throw new Error('This slot is permanent – there is no time to add.');
+  slot.expiresAt = Math.max(slot.expiresAt, Date.now()) + n * 86400000;
+  syncExpiry(u);
+  saveUsers(users);
+  return publicUser(u);
+}
+/** Removes a slot. The Microsoft account that sat in it is returned so the caller can remove the bot. */
+function removeSlot(id, index) {
+  const users = getUsers();
+  const { u, i, slot } = slotOf(users, id, index);
+  if (!slot) throw new Error('Slot not found.');
+  const bot = (u.botNames || [])[i] || null;
+  u.slots.splice(i, 1);
+  if (bot) u.botNames.splice(i, 1);
+  const last = Math.max(0, ...u.slots.map((s) => s.expiresAt || 0));
+  if (u.slots.length) syncExpiry(u); else { u.expiresAt = u.expiresAt || last || null; u.botLimit = 0; }
+  saveUsers(users);
+  return { user: publicUser(u), bot };
+}
+/**
+ * Removes every slot whose time is over together with its Microsoft account; the slots behind it move up.
+ * The last remaining slot is not removed when it ends: the account then enters its 24 h grace period.
+ */
+function expireSlots(now = Date.now()) {
+  const users = getUsers();
+  const out = [];
+  for (const u of users) {
+    if (u.role !== 'user' || !u.slots.length) continue;
+    const ended = u.slots.map((s, i) => (s.expiresAt && s.expiresAt <= now ? i : -1)).filter((i) => i >= 0);
+    // When every slot has ended the whole account is in its 24 h grace period instead (nothing is removed yet; adding time brings it all back).
+    if (!ended.length || ended.length === u.slots.length) continue;
+    const lastEnd = Math.max(...u.slots.map((s) => s.expiresAt || 0));
+    const bots = [];
+    for (const i of ended.slice().reverse()) {
+      const bot = (u.botNames || [])[i];
+      if (bot) { bots.push(bot); u.botNames.splice(i, 1); }
+      u.slots.splice(i, 1);
+    }
+    if (u.slots.length) syncExpiry(u); else { u.expiresAt = lastEnd; u.botLimit = 0; }
+    out.push({ user: publicUser(u), count: ended.length, bots, wasLast: !u.slots.length });
+  }
+  if (out.length) saveUsers(users);
+  return out;
 }
 
 // ---------------------------------------------------------------- bot ownership
@@ -251,6 +405,7 @@ function deleteUser(id) {
   if (u.role === 'admin' && !data.seedsRemoved.includes(u.username.toLowerCase())) data.seedsRemoved.push(u.username.toLowerCase());
   writeData(data);
   for (const [t, s] of sessions) if (s.userId === id) sessions.delete(t);
+  saveSessions();
   return publicUser(u);
 }
 
@@ -284,11 +439,12 @@ function tokenFrom(req) { return parseCookies(req.headers.cookie).session; }
 // An account in its 24 h grace period still has a session (it needs to see the "expired" page) but nothing else.
 function sessionUser(token) {
   if (!token) return null;
-  const s = sessions.get(token);
+  const key = tokenKey(token);
+  const s = sessions.get(key);
   if (!s) return null;
-  if (s.expiresAt < Date.now()) { sessions.delete(token); return null; }
+  if (s.expiresAt < Date.now()) { sessions.delete(key); saveSessions(); return null; }
   const u = getUsers().find((x) => x.id === s.userId);
-  if (!u || accountState(u) === 'gone') { sessions.delete(token); return null; }
+  if (!u || accountState(u) === 'gone') { sessions.delete(key); saveSessions(); return null; }
   return u;
 }
 function isValid(token) { return !!sessionUser(token); }
@@ -303,10 +459,11 @@ function login(username, password, ip) {
   if (accountState(u) === 'gone') { noteFailure(ip); return { error: 'expired' }; }
   attempts.delete(ip);
   const token = crypto.randomBytes(32).toString('hex');
-  sessions.set(token, { userId: u.id, expiresAt: Date.now() + SESSION_MS });
+  sessions.set(tokenKey(token), { userId: u.id, expiresAt: Date.now() + SESSION_MS });
+  saveSessions();
   return { token, user: publicUser(u) };
 }
-function logout(token) { sessions.delete(token); }
+function logout(token) { sessions.delete(tokenKey(token)); saveSessions(); }
 function cookieHeader(token, secure, clear = false) {
   const p = [`session=${clear ? '' : token}`, 'HttpOnly', 'SameSite=Lax', 'Path=/', `Max-Age=${clear ? 0 : Math.floor(SESSION_MS / 1000)}`];
   if (secure) p.push('Secure');
@@ -314,14 +471,16 @@ function cookieHeader(token, secure, clear = false) {
 }
 setInterval(() => {
   const now = Date.now();
-  for (const [t, s] of sessions) if (s.expiresAt < now) sessions.delete(t);
+  let dropped = false;
+  for (const [t, s] of sessions) if (s.expiresAt < now) { sessions.delete(t); dropped = true; }
+  if (dropped) saveSessions();
   for (const [ip, e] of attempts) if (e.resetAt < now) attempts.delete(ip);
 }, 600000).unref();
 
 module.exports = {
   GRACE_MS, MAX_BOT_LIMIT, safeEqual,
   configure, parseAdminAccounts, getUsers, publicUser, accountState,
-  createUser, updateUser, renameUser, addTime, deleteUser, markExpiredHandled,
+  createUser, updateUser, renameUser, addTime, addSlot, setSlotExpiry, addSlotTime, removeSlot, expireSlots, deleteUser, markExpiredHandled,
   addOwnedBot, removeOwnedBots,
   findByDiscordId, setDiscord, updateDiscordTokens, clearDiscord,
   changePassword, sessionUser, login, logout, isValid, tokenFrom, parseCookies, cookieHeader,

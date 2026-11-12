@@ -31,7 +31,7 @@
       <button class="tab" role="tab" data-tab="founder" data-realfounder aria-selected="false" hidden>Founder</button>
       <button class="tab" role="tab" data-tab="settings" aria-selected="false">Settings</button>
     </nav>
-    <div class="who"><span class="chip" id="conn">0/0 online</span><span class="name" id="whoName"></span><form method="post" action="/logout"><button class="ghost sm" type="submit">Log out</button></form></div>
+    <div class="who"><span class="chip" id="conn">0/0 online</span><span class="name" id="whoName"></span><a class="ghost sm btn-link" href="/">Website</a><form method="post" action="/logout"><button class="ghost sm" type="submit">Log out</button></form></div>
   </div>
 </header>
 
@@ -164,7 +164,7 @@
         <label>Temporary password (10+ characters)<input name="password" type="password" required minlength="10" autocomplete="new-password"></label>
         <label id="roleField" hidden>Role<select name="role"><option value="user">User</option><option value="admin">Admin</option></select><span class="hint">Only the founder can create admins</span></label>
         <label>Minecraft account limit<input name="botLimit" type="number" min="0" max="100" value="1" required><span class="hint">How many Microsoft accounts this user may connect</span></label>
-        <label>Membership in days<input name="days" type="number" min="1" placeholder="Permanent"><span class="hint">Empty = permanent. After it ends, the account is locked for 24 h and then deleted.</span></label>
+        <label>Membership in days<input name="days" type="number" min="1" placeholder="Permanent"><span class="hint">Empty = permanent. Applies to every slot at the start; each slot can get its own end later. When the last slot ends, the account is locked for 24 h and then deleted.</span></label>
         <div style="align-self:end"><button class="primary" type="submit">Create account</button></div>
       </form>
     </div>

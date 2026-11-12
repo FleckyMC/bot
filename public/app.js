@@ -185,6 +185,11 @@ function renderHeader(s) {
   $('version').textContent = s.version || 'auto';
 }
 
+function slotEnds(l) {
+  const left = (t) => { const m = Math.max(0, Math.floor((t - Date.now()) / 60000)); const d = Math.floor(m / 1440), h = Math.floor((m % 1440) / 60); return d ? `${d}d ${h}h` : h ? `${h}h ${m % 60}min` : `${m}min`; };
+  return (l.slots || []).map((x, i) => `Account ${i + 1}: ${x.expiresAt ? 'ends in ' + left(x.expiresAt) : 'permanent'}`).join(' · ');
+}
+
 function limitText(s) {
   const l = s.limits || { used: 0, limit: 0, unlimited: false };
   return l.unlimited ? `${l.used} connected · unlimited` : `${l.used} of ${l.limit} used`;
@@ -210,7 +215,7 @@ function renderOverview(s) {
 
   const full = !l.unlimited && l.used >= l.limit;
   for (const id of ['btnAddBot', 'btnAddBot2']) $(id).disabled = full;
-  $('addBotHint').textContent = l.unlimited ? '' : (l.limit === 0 ? 'Your account may not connect Minecraft accounts yet. Ask an admin to raise your limit.' : `${l.used} of ${l.limit} accounts used`);
+  $('addBotHint').textContent = l.unlimited ? '' : (l.limit === 0 ? 'Your account may not connect Minecraft accounts yet. Ask an admin to raise your limit.' : `${l.used} of ${l.limit} accounts used` + (slotEnds(l) ? ' · ' + slotEnds(l) : ''));
 
   const sig = JSON.stringify(s.bots.map((b) => [b.name, b.pos ? 1 : 0, Math.round(b.health || 0), b.status, b.owner]));
   if (!changed('overviewBots', sig)) return;

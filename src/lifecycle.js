@@ -7,7 +7,14 @@ const { accountState } = require('./auth');
  *  - 24 hours later, if nobody added time, the account and its bots are deleted.
  */
 function runLifecycle({ auth, manager, audit, notify = () => {}, now = Date.now() }) {
-  const result = { locked: [], deleted: [] };
+  const result = { locked: [], deleted: [], slots: [] };
+  // A slot whose time is over disappears together with its Microsoft account; the ones behind it move up.
+  for (const e of auth.expireSlots ? auth.expireSlots(now) : []) {
+    for (const n of e.bots) { try { manager.removeBot(n); } catch { /* already gone */ } }
+    audit.add({ type: 'slot_expired', target: e.user, detail: `${e.count} slot${e.count === 1 ? '' : 's'} ended${e.bots.length ? ' - Microsoft account removed' : ''}` });
+    notify({ type: 'slot_expired', target: e.user, at: now });
+    result.slots.push(e.user.username);
+  }
   for (const u of auth.getUsers()) {
     if (u.role === 'founder') continue;
     const state = accountState(u, now);

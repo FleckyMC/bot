@@ -194,3 +194,76 @@ test('founder settings validate input and never expose secrets; webhook text mat
   assert.deepEqual(sent[0].allowed_mentions, { parse: [] });
   assert.match(buildAccountPayload({ type: 'created', actor: boss, target: carl, expiresAt: null }, 'https://discord.com/x').embeds[0].fields[0].value, /permanent/);
 });
+
+test('slots: every Microsoft account slot has its own end; ended ones disappear and the rest moves up', (t) => {
+  setup(t);
+  const now = Date.now();
+  const u = auth.createUser({ username: 'sam', password: 'sam-password-12', slots: [{ expiresAt: now + 1000 }, { expiresAt: now + 5 * DAY }] });
+  assert.equal(u.botLimit, 2);
+  assert.equal(u.expiresAt, now + 5 * DAY, 'the account ends with its last slot');
+  auth.addOwnedBot(u.id, 'Acc1'); auth.addOwnedBot(u.id, 'Acc2');
+  const removed = [];
+  const manager = { workers: new Map(), stopBots() {}, disconnectSelected() {}, removeBot: (n) => removed.push(n) };
+  const audit = createAudit(path.join(os.tmpdir(), `s-${Date.now()}.json`));
+  const res = runLifecycle({ auth, manager, audit, now: now + 2000 });
+  assert.deepEqual(res.slots, ['sam']);
+  assert.deepEqual(removed, ['Acc1']);
+  const after = auth.getUsers().find((x) => x.id === u.id);
+  assert.deepEqual(after.botNames, ['Acc2'], 'Acc2 moved up to slot 1');
+  assert.equal(after.slots.length, 1);
+  assert.equal(after.botLimit, 1);
+  assert.equal(auth.accountState(after, now + 2000), 'active');
+  // the last slot ending starts the normal 24 h grace period instead of removing anything
+  const late = runLifecycle({ auth, manager, audit, now: now + 5 * DAY + 3600000 });
+  assert.deepEqual(late.slots, []);
+  assert.deepEqual(late.locked, ['sam']);
+  assert.equal(auth.accountState(auth.getUsers().find((x) => x.id === u.id), now + 5 * DAY + 3600000), 'grace');
+});
+
+test('slots: admins add, extend, change and remove single slots', (t) => {
+  setup(t);
+  const u = auth.createUser({ username: 'tina', password: 'tina-password-1', botLimit: 1, expiresAt: Date.now() + 3 * DAY });
+  let r = auth.addSlot(u.id, 10);
+  assert.equal(r.user.slots.length, 2);
+  assert.equal(r.user.botLimit, 2);
+  assert.ok(r.user.slots[1].expiresAt > r.user.slots[0].expiresAt);
+  const before = r.user.slots[0].expiresAt;
+  r = { user: auth.addSlotTime(u.id, 0, 4) };
+  assert.equal(r.user.slots[0].expiresAt, before + 4 * DAY);
+  r = { user: auth.setSlotExpiry(u.id, 1, '') };
+  assert.equal(r.user.slots[1].expiresAt, null);
+  assert.equal(r.user.expiresAt, null, 'a permanent slot makes the account permanent');
+  assert.throws(() => auth.addSlotTime(u.id, 1, 2), /permanent/);
+  auth.addOwnedBot(u.id, 'AccX');
+  const gone = auth.removeSlot(u.id, 0);
+  assert.equal(gone.bot, 'AccX');
+  assert.equal(gone.user.slots.length, 1);
+  assert.throws(() => auth.addSlotTime(u.id, 7, 1), /not found/);
+  assert.throws(() => auth.addSlot(auth.getUsers().find((x) => x.role === 'founder').id, 1), /regular/);
+});
+
+test('slots: accounts from before slots existed get the same number of slots with their old end date', (t) => {
+  const { dir } = setup(t);
+  const file = path.join(dir, 'users.json');
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const end = Date.now() + 9 * DAY;
+  data.users.push({ id: 'old1', username: 'oldie', role: 'user', salt: 'x', hash: 'y', createdAt: 1, expiresAt: end, botLimit: 2, botNames: [] });
+  fs.writeFileSync(file, JSON.stringify(data));
+  const u = auth.publicUser(auth.getUsers().find((x) => x.id === 'old1'));
+  assert.deepEqual(u.slots.map((s) => s.expiresAt), [end, end]);
+});
+
+test('sessions survive a restart (stored hashed) and logging out removes them for good', async (t) => {
+  const { dir } = setup(t);
+  auth.createUser({ username: 'uma', password: 'uma-password-12', botLimit: 1 });
+  const login = auth.login('uma', 'uma-password-12', 'ipX');
+  await new Promise((r) => setTimeout(r, 400));
+  const file = path.join(dir, 'sessions.json');
+  assert.ok(!fs.readFileSync(file, 'utf8').includes(login.token), 'the cookie value is never stored');
+  auth.configure(path.join(dir, 'users.json'), 'Boss', 'founder-password-1'); // "restart"
+  assert.equal(auth.sessionUser(login.token).username, 'uma');
+  auth.logout(login.token);
+  await new Promise((r) => setTimeout(r, 400));
+  auth.configure(path.join(dir, 'users.json'), 'Boss', 'founder-password-1');
+  assert.equal(auth.sessionUser(login.token), null);
+});

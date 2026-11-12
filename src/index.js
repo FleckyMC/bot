@@ -117,7 +117,7 @@ app.use(express.urlencoded({ extended: false, limit: '4kb' }));
 
 // ---- Public: the sign-in page and its brand assets only
 app.get('/login', (req, res) => {
-  if (auth.isValid(auth.tokenFrom(req))) return res.redirect('/');
+  if (auth.isValid(auth.tokenFrom(req))) return res.redirect('/panel');
   res.sendFile(path.join(ROOT, 'public', 'login.html'));
 });
 app.get('/login.css', (req, res) => res.sendFile(path.join(ROOT, 'public', 'login.css')));
@@ -125,12 +125,32 @@ app.get('/login.js', (req, res) => res.sendFile(path.join(ROOT, 'public', 'login
 const PUBLIC_ASSETS = /^\/(logo\.png|logo-small\.png|favicon\.png|favicon\.ico|apple-touch-icon\.png|fonts\/[A-Za-z0-9._-]+\.(woff2|txt))$/;
 app.use((req, res, next) => (req.method === 'GET' && PUBLIC_ASSETS.test(req.path)) ? express.static(path.join(ROOT, 'public'), { maxAge: '7d' })(req, res, next) : next());
 
+// ---- Public website (advertising page). Needs neither a login nor a linked Discord account.
+const DISCORD_INVITE = 'https://discord.gg/97XjSp7JcU';
+const SITE_FILES = { '/': 'site.html', '/site.css': 'site.css', '/site.js': 'site.js' };
+app.get(['/', '/site.css', '/site.js'], (req, res) => res.sendFile(path.join(ROOT, 'public', SITE_FILES[req.path])));
+app.get(/^\/site\/[A-Za-z0-9._-]+\.(png|jpg|webp|svg)$/, (req, res) => res.sendFile(path.join(ROOT, 'public', req.path), { maxAge: '1d' }, (e) => { if (e && !res.headersSent) res.status(404).end(); }));
+app.get('/discord', (req, res) => res.redirect(302, DISCORD_INVITE));
+// Price shown on the website: the week price of the Discord shop (so both always agree).
+const sitePrice = () => {
+  try {
+    const s = botConfig.get().shop;
+    const week = (s.plans || []).find((p) => p.days === 7) || (s.plans || [])[0];
+    const perWeek = week ? Math.round((week.price / week.days) * 7 * 100) / 100 : 1;
+    return { perWeek: perWeek > 0 ? perWeek : 1, currency: s.currency || '€' };
+  } catch { return { perWeek: 1, currency: '€' }; }
+};
+app.get('/api/site', (req, res) => {
+  const u = actorOf(req);
+  res.json({ price: sitePrice(), discord: '/discord', signedIn: !!u, name: u ? u.username : null });
+});
+
 app.post('/login', (req, res) => {
   const r = auth.login(req.body.username, req.body.password, req.ip);
   if (r.error === 'rate') return res.redirect('/login?e=rate');
   if (r.error) return res.redirect('/login?e=1');
   res.set('Set-Cookie', auth.cookieHeader(r.token, isSecure(req)));
-  res.redirect('/');
+  res.redirect('/panel');
 });
 app.post('/logout', (req, res) => {
   auth.logout(auth.tokenFrom(req));
@@ -151,7 +171,7 @@ const gateError = (res, message) => res.redirect('/gate.html?msg=' + encodeURICo
 app.get('/auth/discord', signedIn, (req, res) => {
   const u = req.actor;
   if (!founder.discordConfigured()) return gateError(res, 'Discord linking is not set up yet. Please ask the founder.');
-  if (u.discord) return res.redirect('/');
+  if (u.discord) return res.redirect('/panel');
   const now = Date.now();
   for (const [k, v] of oauthStates) if (v.exp < now) oauthStates.delete(k);
   const state = crypto.randomBytes(24).toString('hex');
@@ -172,7 +192,7 @@ app.get('/auth/discord/callback', signedIn, async (req, res) => {
     const { previous, user } = auth.setDiscord(u.id, link);
     if (previous) record('discord_changed', null, u, `${previous.username} → ${link.username}`, { from: previous.username, to: link.username });
     else audit.add({ type: 'discord_linked', target: u, detail: `Linked Discord account ${link.username}` });
-    res.redirect('/');
+    res.redirect('/panel');
   } catch (e) { gateError(res, e.message); }
 });
 
@@ -205,6 +225,7 @@ app.get('/api/admin/users', staffOnly, (req, res) => {
     users: auth.getUsers().filter((u) => perms.canSee(actor, u)).map((u) => ({
       ...auth.publicUser(u),
       botCount: usedSlots(u),
+      slots: (auth.publicUser(u).slots || []).map((s) => ({ expiresAt: s.expiresAt, used: !!s.bot })),
       can: { manage: perms.canManage(actor, u), remove: perms.canDelete(actor, u) },
     })),
   });
@@ -253,6 +274,35 @@ app.post('/api/admin/users/:id/add-time', json, staffOnly, (req, res) => {
     res.json({ user: r.user });
   } catch (e) { fail(res, e); }
 });
+// Every Microsoft account slot has its own end date. Slot n holds the n-th Microsoft account of the user.
+const slotRoute = (fn) => (req, res) => {
+  const target = manageable(req, res);
+  if (!target) return;
+  try { fn(req, res, target); } catch (e) { fail(res, e); }
+};
+app.post('/api/admin/users/:id/slots', json, staffOnly, slotRoute((req, res, target) => {
+  const r = auth.addSlot(target.id, req.body && req.body.days);
+  audit.add({ type: 'slot_added', actor: req.actor, target: r.user, detail: `Slot ${r.user.slots.length} added (${r.user.slots[r.user.slots.length - 1].expiresAt ? 'ends ' + new Date(r.user.slots[r.user.slots.length - 1].expiresAt).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : 'permanent'})${r.wasState !== 'active' ? ' - account is active again' : ''}` });
+  res.json({ user: r.user });
+}));
+app.patch('/api/admin/users/:id/slots/:index', json, staffOnly, slotRoute((req, res, target) => {
+  const user = auth.setSlotExpiry(target.id, req.params.index, req.body && req.body.days);
+  const s = user.slots[Number(req.params.index)];
+  audit.add({ type: 'slot_changed', actor: req.actor, target: user, detail: `Slot ${Number(req.params.index) + 1} ${s.expiresAt ? 'now ends ' + new Date(s.expiresAt).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : 'is now permanent'}` });
+  res.json({ user });
+}));
+app.post('/api/admin/users/:id/slots/:index/add-time', json, staffOnly, slotRoute((req, res, target) => {
+  const days = Number(req.body && req.body.days);
+  const user = auth.addSlotTime(target.id, req.params.index, days);
+  audit.add({ type: 'slot_time_added', actor: req.actor, target: user, detail: `Added ${days} day${days === 1 ? '' : 's'} to slot ${Number(req.params.index) + 1}` });
+  res.json({ user });
+}));
+app.delete('/api/admin/users/:id/slots/:index', staffOnly, slotRoute((req, res, target) => {
+  const r = auth.removeSlot(target.id, req.params.index);
+  if (r.bot) { try { manager.removeBot(r.bot); } catch { /* already gone */ } }
+  audit.add({ type: 'slot_removed', actor: req.actor, target: r.user, detail: `Slot ${Number(req.params.index) + 1} removed${r.bot ? ' together with its Microsoft account' : ''}` });
+  res.json({ user: r.user });
+}));
 app.delete('/api/admin/users/:id', staffOnly, (req, res) => {
   const t = targetOf(req);
   if (!t || !perms.canSee(req.actor, t)) return fail(res, new Error('User not found.'), 404);
@@ -372,12 +422,13 @@ app.use((req, res, next) => {
 // Locked accounts (membership ended, or Discord not linked yet) only reach the gate page.
 app.use((req, res, next) => {
   const lock = lockReason(actorOf(req));
-  if (!lock) return req.path === '/gate.html' ? res.redirect('/') : next();
+  if (!lock) return req.path === '/gate.html' ? res.redirect('/panel') : next();
   if (req.path === '/gate.html' || req.path === '/gate.js') return next();
   if (req.method === 'GET' && req.accepts('html')) return res.redirect('/gate.html');
   res.status(403).json({ error: lock === 'expired' ? 'Your membership has ended.' : 'Link your Discord account first.' });
 });
-app.use(express.static(path.join(ROOT, 'public'), { index: 'index.html', extensions: ['html'] }));
+app.get('/panel', (req, res) => res.sendFile(path.join(ROOT, 'public', 'index.html')));
+app.use(express.static(path.join(ROOT, 'public'), { index: false, extensions: ['html'] }));
 
 // ---- Socket.io: check sign-in cookie and origin
 const socketUserById = new Map();
@@ -451,7 +502,7 @@ const snapshotFor = (user) => {
   const admin = isAdmin(user);
   snap.isAdmin = admin;
   snap.me = { id: user.id, username: user.username, role: user.role };
-  snap.limits = { used: usedSlots(user), limit: user.botLimit || 0, unlimited: admin };
+  snap.limits = { used: usedSlots(user), limit: user.botLimit || 0, unlimited: admin, slots: admin ? [] : auth.publicUser(user).slots };
   if (admin) {
     snap.bots = snap.bots.filter((b) => staffOwns(b.name, user)).map((b) => ({ ...b, owner: user.username }));
     snap.names = snap.bots.map((b) => b.name);

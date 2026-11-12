@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#09060f">
+  <title>Meltrovia Network · Minecraft bots in your browser</title>
+  <meta name="description" content="Run your own Minecraft bots from one dashboard. Connect your Microsoft accounts, watch them live and manage their inventory. €1 per bot per week.">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preload" href="/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/site.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap bar">
+    <a class="brand" href="/" aria-label="Meltrovia Network"><img src="/logo-small.png" width="38" height="38" alt=""><b>Meltrovia Network</b></a>
+    <nav class="links" aria-label="Sections">
+      <a href="#features">Features</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#preview">Preview</a>
+      <a href="/discord" rel="noopener">Discord</a>
+    </nav>
+    <a class="btn primary" id="authBtn" href="/login">Login</a>
+  </div>
+</header>
+
+<main>
+  <section class="hero wrap">
+    <p class="eyebrow">Minecraft bot hosting</p>
+    <h1>Your Minecraft bots,<br><span class="grad">always online.</span></h1>
+    <p class="lead">Connect your own Microsoft accounts and run them from one clean dashboard. Watch every bot live, manage its inventory and keep it connected, all from your browser.</p>
+    <div class="cta">
+      <a class="btn primary big" href="#pricing">See pricing</a>
+      <a class="btn big discord" href="/discord" rel="noopener">Join our Discord</a>
+    </div>
+    <p class="note"><span id="heroPrice">€1</span> per bot per week · no setup, nothing to install</p>
+  </section>
+
+  <section class="wrap" id="features">
+    <h2>Everything in one panel</h2>
+    <div class="grid">
+      <article class="card"><div class="ico" aria-hidden="true">◎</div><h3>Your own accounts</h3><p>Sign in with Microsoft once. Your accounts belong to you alone and nobody else on the network can see or use them.</p></article>
+      <article class="card"><div class="ico" aria-hidden="true">♥</div><h3>Live status</h3><p>Health, hunger, position and server of every bot in real time, plus a console with the chat of your bots.</p></article>
+      <article class="card"><div class="ico" aria-hidden="true">▦</div><h3>Inventory control</h3><p>See what each bot carries. Move items around the inventory or drop them with a click.</p></article>
+      <article class="card"><div class="ico" aria-hidden="true">↻</div><h3>Stays connected</h3><p>Bots reconnect on their own after a network hiccup, so they keep running while you are away.</p></article>
+      <article class="card"><div class="ico" aria-hidden="true">✦</div><h3>Flexible slots</h3><p>Every bot has its own slot with its own runtime. Add a bot whenever you need one, extend it whenever you like.</p></article>
+      <article class="card"><div class="ico" aria-hidden="true">☺</div><h3>Support on Discord</h3><p>Buy, ask questions or get help directly in our Discord server with tickets that are answered by real people.</p></article>
+    </div>
+  </section>
+
+  <section class="wrap" id="pricing">
+    <h2>Simple pricing</h2>
+    <p class="sub">One price for every bot. Pay for as many weeks as you need.</p>
+    <div class="price-box">
+      <div class="price"><span class="amount" id="priceAmount">€1</span><span class="per">/ week</span></div>
+      <p class="each">per bot, each bot on its own</p>
+      <ul>
+        <li>Your own Microsoft account in your own slot</li>
+        <li>Live dashboard with console and inventory</li>
+        <li>Automatic reconnect</li>
+        <li>Extend or add bots at any time</li>
+      </ul>
+      <a class="btn primary big wide" href="/discord" rel="noopener">Buy on Discord</a>
+      <table class="examples" aria-label="Examples">
+        <thead><tr><th>Bots</th><th>Per week</th></tr></thead>
+        <tbody id="priceRows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="wrap" id="preview">
+    <h2>A look at the panel</h2>
+    <p class="sub">This is what you get after signing in.</p>
+    <div class="tabs" role="tablist" aria-label="Panel preview">
+      <button role="tab" class="on" data-shot="overview" aria-selected="true">Overview</button>
+      <button role="tab" data-shot="bots" aria-selected="false">Bots</button>
+      <button role="tab" data-shot="inventory" aria-selected="false">Inventory</button>
+      <button role="tab" data-shot="console" aria-selected="false">Console</button>
+    </div>
+    <figure class="shot">
+      <div class="chrome"><i></i><i></i><i></i><span>meltrovia.com/panel</span></div>
+      <img id="shotImg" src="/site/preview-overview.png" width="1360" height="900" alt="Preview of the Meltrovia Network panel" loading="lazy">
+    </figure>
+  </section>
+
+  <section class="wrap">
+    <div class="join">
+      <div>
+        <h2>Join the community</h2>
+        <p>Questions, updates and purchases all happen in our Discord server.</p>
+      </div>
+      <a class="btn discord big" href="/discord" rel="noopener">Join Discord</a>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap foot">
+  <span>© Meltrovia Network</span>
+  <span><a href="/discord" rel="noopener">Discord</a> · <a href="/login">Login</a></span>
+</footer>
+<script src="/site.js"></script>
+</body>
+</html>

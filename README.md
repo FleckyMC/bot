@@ -102,3 +102,10 @@ npm test
 ```
 
 `.env` and `data/` (users, Microsoft logins, settings) must never be committed.
+
+
+## Website, slots and sessions
+
+- `/` is a public website (pricing, Discord invite, panel preview) that needs neither a login nor a linked Discord account. The panel itself lives at `/panel`; `/discord` redirects to the Discord invite. The price shown is the week price of the Discord shop. The preview images are in `public/site/`.
+- Every regular account has Microsoft account **slots**, each with its own end date (Accounts tab: ＋ add time, ✎ change, ✕ remove, ＋ Add slot). When a slot ends, it disappears together with its Microsoft account and the slots behind it move up. When the last slot ends, the account is locked for 24 h and then deleted unless time is added.
+- Logins are stored (hashed) in `data/sessions.json`, so a restart no longer signs everybody out.
